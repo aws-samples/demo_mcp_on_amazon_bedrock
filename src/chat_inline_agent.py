@@ -6,107 +6,99 @@ import os
 import sys
 import asyncio
 import logging
-from typing import Dict, AsyncGenerator, Optional, List, AsyncIterator
+from typing import Dict, AsyncGenerator, Optional, List, AsyncIterator, override
 import json
 import boto3
 from botocore.config import Config
 from dotenv import load_dotenv
-from chat_client import ChatClient
+from chat_client_stream import ChatClientStream
 import base64
 from mcp_client import MCPClient
 from utils import maybe_filter_to_n_most_recent_images
 from botocore.exceptions import ClientError
 import random
 import time
+from InlineAgent.agent import InlineAgent
+from InlineAgent.action_group import ActionGroup
 load_dotenv()  # load environment variables from .env
 logger = logging.getLogger(__name__)
 CLAUDE_37_SONNET_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
 
+load_dotenv()  # load environment variables from .env
+logger = logging.getLogger(__name__)
+CLAUDE_37_SONNET_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
 
-class ChatClientStream(ChatClient):
-    """Extended ChatClient with streaming support"""
+def convert_messages_to_agent_format(messages):
+    """
+    Converts message format to Bedrock Agent conversation history format.
+    """
+    agent_messages = []
+    files = []
+    idx = 1
+    for msg in messages:
+        for message_content in msg["content"]:
+            if 'text' in message_content :
+                agent_messages.append({
+                    'content': [
+                        {
+                            'text': msg["content"] 
+                        }
+                    ],
+                    'role': msg["role"]
+                })
+            elif 'document' in message_content :
+                files.append([{
+                    'name':message_content['document']['name'],
+                    'source':{'byteContent':
+                                {'data':message_content['document']['source']['bytes'],
+                                'mediaType':message_content['document']['format']
+                                },
+                                'sourceType':'BYTE_CONTENT'
+                    },
+                    'useCase':'CHAT'
+                }])
+            elif 'image' in message_content :
+                files.append([{
+                    'name':f'image_{idx}',
+                    'source':{'byteContent':
+                                {'data':message_content['image']['source']['bytes'],
+                                'mediaType':message_content['image']['format']
+                                },
+                                'sourceType':'BYTE_CONTENT'
+                    },
+                    'useCase':'CHAT'
+                }])
+                idx += 1
+                
+    # 最后一个消息是当前输入
+    if agent_messages:
+        agent_messages = agent_messages[:-1]
+    
+    return {'conversationHistory': {'messages': agent_messages}},{'files':files}
+    
+
+class ChatInlineAgent(ChatClientStream):
+    """Extended ChatClient with Bedrock InlineAgent support"""
     
     def __init__(self,credential_file=''):
-        super().__init__(credential_file)
-        self.max_retries = 10 # Maximum number of retry attempts
-        self.base_delay = 10 # Initial backoff delay in seconds
-        self.max_delay = 60 # Maximum backoff delay in seconds
-        self.client_index = 0
-        self.stop_flags = {} # Dict to track stop flags for streams
-
+        super().__init__(credential_file=credential_file,runtime='bedrock-agent-runtime')
+       
+    @override 
     def get_bedrock_client_from_pool(self):
         if self.bedrock_client_pool:
-            logger.info(f"get_bedrock_client_from_pool index: [{self.client_index}]")
+            logger.info(f"get_bedrock_agent_runtime_client_from_pool index: [{self.client_index}]")
             if self.client_index and self.client_index %(len(self.bedrock_client_pool)-1) == 0:
                 self.client_index = 0
             bedrock_client = self.bedrock_client_pool[self.client_index]
             self.client_index += 1
         else:
-            bedrock_client = self._get_bedrock_client()
+            bedrock_client = self._get_bedrock_client(runtime='bedrock-agent-runtime')
         return bedrock_client
-        
-    async def _process_stream_response(self, response) -> AsyncIterator[Dict]:
-        """Process the raw response from converse_stream"""
-        for event in response['stream']:
-            # logger.infos(event)
-            # Handle message start
-            if "messageStart" in event:
-                yield {"type": "message_start", "data": event["messageStart"]}
-                continue
-
-            # Handle content block start
-            if "contentBlockStart" in event:
-                block_start = event["contentBlockStart"]
-                yield {"type": "block_start", "data": block_start}
-                continue 
-
-            # Handle content block delta
-            if "contentBlockDelta" in event:
-                delta = event["contentBlockDelta"]
-                yield {"type": "block_delta", "data": delta}
-                continue
-
-            # Handle content block stop
-            if "contentBlockStop" in event:
-                yield {"type": "block_stop", "data": event["contentBlockStop"]}
-                continue
-
-            # Handle message stop
-            if "messageStop" in event:
-                yield {"type": "message_stop", "data": event["messageStop"]}
-                continue
-
-            # Handle metadata
-            if "metadata" in event:
-                yield {"type": "metadata", "data": event["metadata"]}
-                continue
-            
-    def exponential_backoff(self, attempt):
-        """Calculate exponential backoff delay with jitter"""
-        delay = min(self.max_delay, self.base_delay * (2 ** attempt))
-        jitter = random.uniform(0, 0.1 * delay)  # 10% jitter
-        return delay + jitter
     
-    def register_stream(self, stream_id):
-        """Register a new stream with a stop flag"""
-        self.stop_flags[stream_id] = False
-        logger.info(f"Registered stream: {stream_id}")
-        
-    def stop_stream(self, stream_id):
-        """Set the stop flag for a stream to terminate it"""
-        if stream_id in self.stop_flags:
-            self.stop_flags[stream_id] = True
-            logger.info(f"Stopping stream: {stream_id}")
-            return True
-        logger.warning(f"Attempted to stop unknown stream: {stream_id}")
-        return False
-        
-    def unregister_stream(self, stream_id):
-        """Clean up the stop flag after a stream completes"""
-        if stream_id in self.stop_flags:
-            del self.stop_flags[stream_id]
-            logger.info(f"Unregistered stream: {stream_id}")
-            
+    
+    
+    
+    @override
     async def process_query_stream(self, query: str = "",
             model_id="amazon.nova-lite-v1:0", max_tokens=1024, max_turns=30,temperature=0.1,
             history=[], system=[],mcp_clients=None, mcp_server_ids=[],extra_params={},
@@ -121,14 +113,6 @@ class ChatClientStream(ChatClient):
                     "content": [{"text": query}]
             })
         messages = history
-
-        # get tools from mcp server
-        tool_config = {"tools": []}
-        if mcp_clients is not None:
-            for mcp_server_id in mcp_server_ids:
-                tool_config_response = await mcp_clients[mcp_server_id].get_tool_config(server_id=mcp_server_id)
-                tool_config['tools'].extend(tool_config_response["tools"])
-        logger.info(f"Tool config: {tool_config}")
         
         use_client_pool = True if self.bedrock_client_pool else False
 
@@ -141,26 +125,26 @@ class ChatClientStream(ChatClient):
         stop_reason = ''
         turn_i = 1
 
-        enable_thinking = extra_params.get('enable_thinking', False) and model_id in CLAUDE_37_SONNET_MODEL_ID
-        only_n_most_recent_images = extra_params.get('only_n_most_recent_images', 3)
+        only_n_most_recent_images = extra_params.get('only_n_most_recent_images', 1)
         image_truncation_threshold = only_n_most_recent_images or 0
 
-        if enable_thinking:
-            additionalModelRequestFields = {"reasoning_config": { "type": "enabled","budget_tokens": extra_params.get("budget_tokens",1024)}}
-            inferenceConfig={"maxTokens":max(extra_params.get("budget_tokens",1024) + 1, max_tokens),"temperature":1,}
+        conversationHistory,files = convert_messages_to_agent_format(messages)
+        requestParams = {
+            'sessionId': user_id,
+            'inputText': messages,
+            'instruction':system,
+            'enableTrace':True,
+            'endSession':False,
+            'sessionState':{**conversationHistory,**files},
+            'streamingConfigurations': {"streamFinalResponse": True},
+        }
+        
+        action_groups = []
+        if mcp_clients is not None:
+            for mcp_server_id in mcp_server_ids:
+                action_groups.append(mcp_clients[mcp_server_id])
 
-        else:
-            additionalModelRequestFields = {}
-            inferenceConfig={"maxTokens":max_tokens,"temperature":temperature,}
-
-        requestParams = dict(
-                    modelId=model_id,
-                    messages=messages,
-                    system=system,
-                    inferenceConfig=inferenceConfig,
-                    additionalModelRequestFields = additionalModelRequestFields
-        )
-        requestParams = {**requestParams, 'toolConfig': tool_config} if tool_config['tools'] else requestParams
+        requestParams = {**requestParams, 'actionGroups': action_groups} if action_groups else requestParams
 
         # Register this stream if an ID is provided
         if stream_id:
@@ -399,3 +383,4 @@ class ChatClientStream(ChatClient):
         # Clean up the stop flag after streaming completes
         if stream_id:
             self.unregister_stream(stream_id)
+   

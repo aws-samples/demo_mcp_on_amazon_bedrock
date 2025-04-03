@@ -24,7 +24,7 @@ class ChatClient:
 
     bedrock_client_pool = []
     
-    def __init__(self, credential_file='', access_key_id='', secret_access_key='', region=''):
+    def __init__(self, credential_file='', access_key_id='', secret_access_key='', region='',runtime='bedrock-runtime'):
         self.env = {
             'AWS_ACCESS_KEY_ID': access_key_id or os.environ.get('AWS_ACCESS_KEY_ID'),
             'AWS_SECRET_ACCESS_KEY': secret_access_key or os.environ.get('AWS_SECRET_ACCESS_KEY'),
@@ -33,13 +33,13 @@ class ChatClient:
         if credential_file:
             credentials = pd.read_csv(credential_file)
             for index, row in credentials.iterrows():
-                self.bedrock_client_pool.append(self._get_bedrock_client(ak=row['ak'],sk=row['sk']))
+                self.bedrock_client_pool.append(self._get_bedrock_client(ak=row['ak'],sk=row['sk'],runtime=runtime))
             logger.info(f"Loaded {len(self.bedrock_client_pool)} bedrock clients from {credential_file}")
 
-    def _get_bedrock_client(self, ak='', sk='', region='', runtime=True):
+    def _get_bedrock_client(self, ak='', sk='', region='', runtime='bedrock-runtime'):
         if ak and sk:
             bedrock_client = boto3.client(
-                service_name='bedrock-runtime' if runtime else 'bedrock',
+                service_name=runtime,
                 aws_access_key_id=ak,
                 aws_secret_access_key=sk,
                 region_name=region or os.environ.get('AWS_REGION'),
@@ -53,7 +53,7 @@ class ChatClient:
             )
         if self.env['AWS_ACCESS_KEY_ID'] and self.env['AWS_SECRET_ACCESS_KEY']:
             bedrock_client = boto3.client(
-                service_name='bedrock-runtime' if runtime else 'bedrock',
+                service_name=runtime,
                 aws_access_key_id=self.env['AWS_ACCESS_KEY_ID'],
                 aws_secret_access_key=self.env['AWS_SECRET_ACCESS_KEY'],
                 region_name=self.env['AWS_REGION'],
@@ -67,7 +67,7 @@ class ChatClient:
             )
         else:
             bedrock_client = boto3.client(
-                service_name='bedrock-runtime' if runtime else 'bedrock',
+                service_name=runtime,
                 config=Config(
                     retries={
                         "max_attempts": 3,

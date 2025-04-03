@@ -9,22 +9,22 @@ import os
 import logging
 import asyncio
 from typing import Optional, Dict
-from contextlib import AsyncExitStack
 from pydantic import ValidationError
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client, get_default_environment
-from mcp.types import Resource, Tool, TextContent, ImageContent, EmbeddedResource,CallToolResult,NotificationParams
-from mcp.shared.exceptions import McpError
 from dotenv import load_dotenv
+from InlineAgent.tools.mcp import MCPStdio
+from mcp.client.stdio import stdio_client, get_default_environment
+from mcp import StdioServerParameters
+
 
 load_dotenv()  # load environment variables from .env
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
 logger = logging.getLogger(__name__)
 delimiter = "___"
 tool_name_mapping = {}
 tool_name_mapping_r = {}
-class MCPClient:
-    """Manage MCP sessions.
+class InlineAgentMCPClient:
+    """Manage Inline Agent MCP sessions.
 
     Support features:
     - MCP multi-server
@@ -39,9 +39,7 @@ class MCPClient:
             'AWS_REGION': region or os.environ.get('AWS_REGION'),
         }
         self.name = name
-        # self.sessions: Dict[str, Optional[ClientSession]] = {}
-        self.session = None
-        self.exit_stack = AsyncExitStack()
+        self.client = None
 
     @staticmethod
     def normalize_tool_name( tool_name):
@@ -53,7 +51,7 @@ class MCPClient:
         global tool_name_mapping, tool_name_mapping_r
         # prepend server prefix namespace to support multi-mcp-server
         tool_key = server_id + ns_delimiter + tool_name
-        tool_name4llm = tool_key if not norm else MCPClient.normalize_tool_name(tool_key)
+        tool_name4llm = tool_key if not norm else InlineAgentMCPClient.normalize_tool_name(tool_key)
         tool_name_mapping[tool_key] = tool_name4llm
         tool_name_mapping_r[tool_name4llm] = tool_key
         return tool_name4llm
@@ -69,11 +67,7 @@ class MCPClient:
         return server_id, tool_name
 
     async def disconnect_to_server(self):
-        await self.cleanup()
-
-    async def handle_resource_change(params: NotificationParams):
-        print(f"资源变更类型: {params['changeType']}")
-        print(f"受影响URI: {params['resourceURIs']}")
+        await self.client.cleanup()
     
     
     async def connect_to_server(self, server_script_path: str = "", server_script_args: list = [], 
@@ -129,28 +123,11 @@ class MCPClient:
         except Exception as e:
             logger.error(f"\n{e}")
             raise ValueError(f"Invalid server script or command. {e}")
-        logger.info(f"\nAdding server %s %s" % (command, server_script_args))
-        
-        try:
-            stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-            _stdio, _write = stdio_transport
-            self.session = await self.exit_stack.enter_async_context(ClientSession(_stdio, _write))
-            await self.session.initialize()
-            logger.info(f"\n{self.name} session initialize done")
-        except Exception as e:
-            logger.error(f"\n{self.name} session initialize failed: {e}")
-            raise ValueError(f"Invalid server script or command. {e}")    
-        
-        try:
- 
-            resource = await self.session.list_resources()
-            logger.info(f"\n{self.name} list_resources:{resource}")
-        except McpError as e:
-            logger.info(f"\n{self.name} list_resources:{str(e)}")
-        # List available tools
-        response = await self.session.list_tools()
-        tools = response.tools
-        logger.info(f"\nConnected to server [{self.name}] with tools: " + str([tool for tool in tools]))
+
+        mcp_client = await MCPStdio.create(server_params)
+        logger.info(f"\nCreate server %s %s" % (command, server_script_args))
+        return mcp_client
+
 
     async def get_tool_config(self, model_provider='bedrock', server_id : str = ''):
         """Get llm's tool usage config via MCP server"""
@@ -164,40 +141,10 @@ class MCPClient:
         tool_config["tools"].extend([{
             "toolSpec":{
                 # mcp tool's original name to llm tool name (with server id namespace)
-                "name": MCPClient.get_tool_name4llm(server_id, tool.name, norm=True),
+                "name": InlineAgentMCPClient.get_tool_name4llm(server_id, tool.name, norm=True),
                 "description": tool.description, 
                 "inputSchema": {"json": tool.inputSchema}
             }
         } for tool in response.tools])
 
         return tool_config
-
-    async def call_tool(self, tool_name, tool_args):
-        """Call tool via MCP server"""
-        try:
-            result = await self.session.call_tool(tool_name, tool_args)
-            return result
-        except ValidationError as e:
-            # Extract the actual tool result from the validation error
-            raw_data = e.errors() if hasattr(e, 'errors') else None
-            logger.info(f"raw_data:{raw_data}")
-            if raw_data and len(raw_data) > 0:
-                tool_result = raw_data[0]['input']
-                
-                return CallToolResult.model_validate(tool_result)
-            # Re-raise the exception if the result cannot be extracted
-            raise
-
-    async def cleanup(self):
-        """Clean up resources"""
-        try:
-            await self.exit_stack.aclose()
-        except RuntimeError as e:
-            # Handle the case where exit_stack is being closed in a different task
-            if "Attempted to exit cancel scope in a different task" in str(e):
-                # Create a new exit stack for future use
-                self.exit_stack = AsyncExitStack()
-                logger.warning(f"Handled cross-task exit_stack closure for {self.name}")
-            else:
-                # Re-raise if it's a different error
-                raise

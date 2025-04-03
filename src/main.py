@@ -36,7 +36,6 @@ from fastapi.exceptions import RequestValidationError
 from mcp_client import MCPClient
 from chat_client_stream import ChatClientStream
 from mcp.shared.exceptions import McpError
-
 # 全局模型和服务器配置
 load_dotenv()  # load env vars from .env
 llm_model_list = {}
@@ -52,6 +51,14 @@ security = HTTPBearer()
 
 logger = logging.getLogger(__name__)
 
+InlineAgent_enable= False
+try:
+    from InlineAgent.action_group import ActionGroup
+    from InlineAgent.agent import InlineAgent
+    from inline_agent_mcp_client import InlineAgentMCPClient
+    InlineAgent_enable = True
+except ImportError:
+    logger.warning("InlineAgent not installed, please install it first")
 
 # 用户会话管理
 class UserSession:
@@ -62,6 +69,7 @@ class UserSession:
         else:
             self.chat_client = ChatClientStream()
         self.mcp_clients = {}  # 用户特定的MCP客户端
+        self.inline_agent_action_groups = {} 
         self.last_active = datetime.now()
         self.session_id = str(uuid.uuid4())
         self.lock = asyncio.Lock()  # 用于同步会话内的操作
@@ -192,6 +200,32 @@ async def initialize_user_servers(session: UserSession):
             
         except Exception as e:
             logger.error(f"User Id  {session.user_id} initialize server {server_id} failed: {e}")
+            
+        try:
+            # 创建并连接MCP Action group for inline agent 服务器
+            server_id = f"inlineAgent_{server_id}"
+            if InlineAgent_enable:
+                # 创建并连接InlineAgent MCP服务器
+                inline_agent_mcp_client = InlineAgentMCPClient(name=f"{session.user_id}_{server_id}")
+                session.inline_agent_action_groups[server_id] = ActionGroup(
+                    name = f"{server_id}_ActionGroup",
+                    mcp_clients = [await inline_agent_mcp_client.connect_to_server(
+                    command=config["command"],
+                    server_script_args=config.get("args", []),
+                    server_script_envs=config.get("env", {}))]
+                    )
+                
+                # 添加到用户的客户端列表
+                session.mcp_clients[server_id] = mcp_client
+                
+                save_user_server_config(user_id, server_id, config)
+
+                await save_user_mcp_configs()
+                logger.info(f"User Id {session.user_id} initialize server {server_id}")
+            
+        except Exception as e:
+            logger.error(f"User Id  {session.user_id} initialize server {server_id} failed: {e}")
+            
 
 async def get_or_create_user_session(
     request: Request,
@@ -602,8 +636,6 @@ async def remove_mcp_server(
             delete_user_server_config(user_id, server_id)
             #save conf
             await save_user_mcp_configs()
-        # if user_id in user_mcp_server_configs and server_id in user_mcp_server_configs[user_id]:
-        #     del user_mcp_server_configs[user_id][server_id]
             
         
         return JSONResponse(content=AddMCPServerResponse(
@@ -621,6 +653,12 @@ async def remove_mcp_server(
 # 活跃流式请求的字典，用于跟踪可以停止的请求
 active_streams = {}
 
+async def stream_inline_agent_response(data: ChatCompletionRequest, session: UserSession, stream_id: str = None) -> AsyncGenerator[str, None]:
+    # 注册流式请求，便于后续可能的停止操作
+    global active_streams
+    # to do
+    
+    
 async def stream_chat_response(data: ChatCompletionRequest, session: UserSession, stream_id: str = None) -> AsyncGenerator[str, None]:
     """为特定用户生成流式聊天响应"""
     # 注册流式请求，便于后续可能的停止操作
@@ -886,6 +924,15 @@ async def chat_completions(
             }],
             usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         ).model_dump())
+    
+    # 如果使用inline agent
+    if data.extra_params.get('inline_agent') and data.stream:
+        stream_id = f"stream_{session.user_id}_{time.time_ns()}"
+        return StreamingResponse(
+            stream_inline_agent_response(data, session, stream_id),
+            media_type="text/event-stream",
+            headers={"X-Stream-ID": stream_id}  # 添加流ID到响应头，便于前端跟踪
+        )
 
     # 处理流式请求
     if data.stream:
