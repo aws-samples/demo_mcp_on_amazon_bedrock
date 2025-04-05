@@ -19,6 +19,28 @@ logger = logging.getLogger(__name__)
 
 CLAUDE_37_SONNET_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
 
+
+def assume_role(session, role_arn):
+    # Create a boto3 STS client
+    sts_client = session.client('sts')
+    
+    # Assume the IAM role
+    assumed_role_object = sts_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName=f'TempAccess-gcr'
+    )
+    
+    # Extract the temporary credentials
+    credentials = assumed_role_object['Credentials']
+    
+    # Create a new boto3 session with the temporary credentials
+    return boto3.Session(
+        aws_access_key_id=credentials['AccessKeyId'],
+        aws_secret_access_key=credentials['SecretAccessKey'],
+        aws_session_token=credentials['SessionToken']
+    )
+
+    
 class ChatClient:
     """Bedrock simple chat wrapper"""
 
@@ -37,6 +59,23 @@ class ChatClient:
             logger.info(f"Loaded {len(self.bedrock_client_pool)} bedrock clients from {credential_file}")
 
     def _get_bedrock_client(self, ak='', sk='', region='', runtime=True):
+        YOUR_ROLE_ARN = os.environ.get('YOUR_ROLE_ARN')
+        AGI_ROLE_ARN = os.environ.get('AGI_ROLE_ARN')
+        your_session = assume_role(boto3, YOUR_ROLE_ARN)
+        agi_session = assume_role(your_session, AGI_ROLE_ARN)
+        bedrock_client = agi_session.client(
+                service_name='bedrock-runtime' if runtime else 'bedrock',
+                config=Config(
+                    retries={
+                        "max_attempts": 3,
+                        "mode": "standard",
+                    },
+                    read_timeout=300,
+                ))
+
+        return bedrock_client
+        
+    def _get_bedrock_client_bak(self, ak='', sk='', region='', runtime=True):
         if ak and sk:
             bedrock_client = boto3.client(
                 service_name='bedrock-runtime' if runtime else 'bedrock',
