@@ -6,7 +6,7 @@ import os
 import sys
 import asyncio
 import logging
-from typing import Dict
+from typing import Dict,AsyncGenerator
 import boto3
 from botocore.config import Config
 from dotenv import load_dotenv
@@ -15,6 +15,11 @@ from utils import maybe_filter_to_n_most_recent_images
 import pandas as pd
 load_dotenv()  # load environment variables from .env
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
+)
 logger = logging.getLogger(__name__)
 
 CLAUDE_37_SONNET_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
@@ -23,13 +28,18 @@ class ChatClient:
     """Bedrock simple chat wrapper"""
 
     bedrock_client_pool = []
-    
+
     def __init__(self, credential_file='', access_key_id='', secret_access_key='', region=''):
         self.env = {
             'AWS_ACCESS_KEY_ID': access_key_id or os.environ.get('AWS_ACCESS_KEY_ID'),
             'AWS_SECRET_ACCESS_KEY': secret_access_key or os.environ.get('AWS_SECRET_ACCESS_KEY'),
             'AWS_REGION': region or os.environ.get('AWS_REGION'),
         }
+        
+        # self.max_history = int(os.environ.get('MAX_HISTORY_TURN',5))*2
+        self.messages = [] # History messages without system message
+        self.system = None
+        
         if credential_file:
             credentials = pd.read_csv(credential_file)
             for index, row in credentials.iterrows():
@@ -78,20 +88,24 @@ class ChatClient:
 
         return bedrock_client
     
-    async def process_query(self, query: str = "", 
+    def clear_history(self):
+        """clear session message of this client"""
+        self.messages = []
+        self.system = None
+        
+    async def process_query(self, 
             model_id="amazon.nova-lite-v1:0", max_tokens=1024, temperature=0.1,max_turns=30,
-            history=[], system=[], mcp_clients=None, mcp_server_ids=[],extra_params={}) -> Dict:
+            messages=[], system=[], mcp_clients=None, mcp_server_ids=[],extra_params={},keep_session=None) -> AsyncGenerator[Dict, None]:
         """Submit user query or history messages, and then get the response answer.
 
         Note the specified mcp servers' tool maybe used.
         """
-        if query:
-            history.append({
-                    "role": "user",
-                    "content": [{"text": query}]
-            })
-        messages = history
-
+        if keep_session:
+            messages = self.messages + messages
+            system = self.system if self.system else system
+        else:
+            self.clear_history()
+            
         # get tools from mcp server
         tool_config = {"tools": []}
         if mcp_clients is not None:        
@@ -138,6 +152,7 @@ class ChatClient:
 
         if stop_reason == 'end_turn':
             # normal chat finished
+            #save history message
             yield output_message
         elif stop_reason == 'tool_use' and mcp_clients is not None:
             # return tool request use

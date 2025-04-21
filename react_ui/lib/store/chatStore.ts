@@ -51,6 +51,7 @@ interface ChatState {
   budgetTokens: number;
   temperature: number;
   onlyNMostRecentImages: number;
+  keepSession: boolean;
   
   // Models and servers
   modelNames: Record<string, string>; // name -> id
@@ -73,6 +74,7 @@ interface ChatState {
   toggleServer: (serverName: string) => void;
   setSelectedModel: (modelName: string) => void;
   updateSettings: (settings: Partial<ChatState>) => void;
+  setKeepSession: (keep: boolean) => void;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -90,6 +92,7 @@ export const useChatStore = create<ChatState>()(
       budgetTokens: 8192,
       temperature: 0.6,
       onlyNMostRecentImages: 1,
+      keepSession: true,
       
       // Models and servers
       modelNames: {},
@@ -177,6 +180,8 @@ export const useChatStore = create<ChatState>()(
       setSelectedModel: (modelName) => set({ selectedModel: modelName }),
       
       updateSettings: (settings) => set(settings),
+      
+      setKeepSession: (keep) => set({ keepSession: keep }),
     }),
     {
       name: 'mcp-chat-storage',
@@ -189,6 +194,7 @@ export const useChatStore = create<ChatState>()(
         budgetTokens: state.budgetTokens,
         temperature: state.temperature,
         onlyNMostRecentImages: state.onlyNMostRecentImages,
+        keepSession: state.keepSession,
       }),
     }
   )

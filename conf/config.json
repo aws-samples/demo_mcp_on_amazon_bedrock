@@ -19,6 +19,14 @@
 		{
 			"model_id": "us.amazon.nova-lite-v1:0",
 			"model_name": "Amazon Nova Lite v1"
+		},
+		{
+			"model_id": "Pro/deepseek-ai/DeepSeek-V3",
+			"model_name": "DeepSeek-V3-Pro"
+		},
+		{
+			"model_id": "deepseek-ai/DeepSeek-V3",
+			"model_name": "DeepSeek-V3-free"
 		}
 	],
 	"mcpServers": {

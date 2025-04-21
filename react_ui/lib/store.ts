@@ -56,6 +56,8 @@ interface ChatStore {
   setBudgetTokens: (tokens: number) => void
   onlyNMostRecentImages: number
   setOnlyNMostRecentImages: (count: number) => void
+  keepSession: boolean
+  setKeepSession: (enabled: boolean) => void
   
   // Models
   models: Model[]
@@ -79,7 +81,9 @@ export const useStore = create<ChatStore>()(
   persist(
     (set) => ({
       // Messages
-      messages: [{ role: 'system', content: 'You are a helpful assistant.' }],
+      messages: [{ role: 'system', 
+        content: `You are a deep researcher
+Please use the maximum computational power and token limit available in a single response. Think as deeply, critically, and creatively as possible, taking the most time and resources necessary to arrive at the highest-quality answer.` }],
       addMessage: (message) => set((state) => ({ 
         messages: [...state.messages, message] 
       })),
@@ -97,9 +101,27 @@ export const useStore = create<ChatStore>()(
         }
         return { messages }
       }),
-      clearMessages: () => set((state) => ({ 
-        messages: [{ role: 'system', content: state.systemPrompt }] 
-      })),
+      clearMessages: () => {
+        const state = useStore.getState();
+        
+        // If keep session is enabled, call the API to remove server-side history
+        if (state.keepSession && state.userId) {
+          import('./api/history').then(({ removeHistory }) => {
+            removeHistory(state.userId).then((result) => {
+              if (!result.success) {
+                console.error('Failed to remove history on server:', result.message);
+              }
+            }).catch((error) => {
+              console.error('Error removing history:', error);
+            });
+          });
+        }
+        
+        // Reset local messages in any case
+        set((state) => ({ 
+          messages: [{ role: 'system', content: state.systemPrompt }] 
+        }));
+      },
       
       // Settings
       systemPrompt: 'You are a helpful assistant.',
@@ -116,6 +138,8 @@ export const useStore = create<ChatStore>()(
       setBudgetTokens: (tokens) => set({ budgetTokens: tokens }),
       onlyNMostRecentImages: 1,
       setOnlyNMostRecentImages: (count) => set({ onlyNMostRecentImages: count }),
+      keepSession: true,
+      setKeepSession: (enabled) => set({ keepSession: enabled }),
       
       // Models
       models: [],

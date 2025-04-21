@@ -1,7 +1,7 @@
 import { Message } from '../store/chatStore';
 
 // Get environment variables with server/client detection
-const getBaseUrl = () => {
+export const getBaseUrl = () => {
   // Check if we're running on the server or client
   if (typeof window === 'undefined') {
     // Server-side: use internal URL
@@ -388,6 +388,7 @@ export async function sendChatRequest({
   stream = true,
   maxTokens = 1024,
   temperature = 0.6,
+  keepSession = false,
   extraParams = {}
 }: {
   messages: Message[];
@@ -397,6 +398,7 @@ export async function sendChatRequest({
   stream?: boolean;
   maxTokens?: number;
   temperature?: number;
+  keepSession?: boolean;
   extraParams?: Record<string, any>;
 }) {
   const baseUrl = getBaseUrl();
@@ -408,7 +410,8 @@ export async function sendChatRequest({
     extra_params: extraParams,
     stream,
     temperature,
-    max_tokens: maxTokens
+    max_tokens: maxTokens,
+    keep_session: keepSession
   };
   
   try {

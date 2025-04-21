@@ -1,4 +1,13 @@
 # MCP on Amazon Bedrock[[English Readme](./README.en.md)]
+### 更新日志
+- [20250419] Keep Server Session 功能，可以在服务器端保存session所有历史消息，包括（Tool use历史）
+  - UI开启方法：UI上通过`Keep Session on Server`开关控制,点击`Clear Conversion`时，会向服务端发起`v1/remove/history`请求清空服务器session消息。
+  - 如果直接使用服务端接口，在ChatCompletionRequest中加入keep_session=True,表示在服务端保存，messages中只需要传入system和最新的user 即可，无须再传入历史消息。
+  - 如果要清空服务器端历史，需要发起`POST v1/remove/history`请求
+  
+- [20250418] 新增中国区硅基流动deepseek v3模型支持，新增sse server支持
+  - 注意如果是升级安装，需要运行`uv sync`更新依赖环境
+
 - Demo Vides
 ![alt text](assets/demo_videos.png)
 
@@ -99,7 +108,7 @@ aws dynamodb create-table \
     --key-schema AttributeName=userId,KeyType=HASH \
     --billing-mode PAY_PER_REQUEST 
 ```
-### 2.4 配置编辑
+### 2.4 配置编辑（海外区使用Bedrock）
 > Tips: 如何需要配置多个账号ak/sk, 使用轮询机制，可以在conf/目录下增加一个`credential.csv`, 列名分别为**ak**，**sk**， 填入多个ak/sk即可，例如: 
   
 | ak | sk |  
@@ -107,21 +116,56 @@ aws dynamodb create-table \
 | ak 1 | sk 1 |  
 | ak 2 | sk 2 |  
 
-项目配置写入 `.env` 文件，应包含以下配置项（建议拷贝 `env_dev` 在其基础上修改）： 
-```
-AWS_ACCESS_KEY_ID=(可选，如果有credential.csv则不需要)<your-access-key>
+运行以下命令创建.env 文件， **请修改AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION等信息之后再运行**  
+
+```bash
+cat << EOF > .env
+AWS_ACCESS_KEY_ID=(可选，如果有credential.csv则不需要)
 AWS_SECRET_ACCESS_KEY=(可选)<your-secret-key>
 AWS_REGION=<your-region>
 LOG_DIR=./logs
-CHATBOT_SERVICE_PORT=<chatbot-ui-service-port>
+CHATBOT_SERVICE_PORT=8502
 MCP_SERVICE_HOST=127.0.0.1
-MCP_SERVICE_PORT=<bedrock-mcp-service-port>
-API_KEY=<your-new-api-key>
-MAX_TURNS=100
-ddb_table=mcp_user_config_table<如果不使用dynamodb，则删除此行>
+MCP_SERVICE_PORT=7002
+API_KEY=123456
+MAX_TURNS=200
+#如果不使用dynamodb，则删除下面一行
+ddb_table=mcp_user_config_table
+EOF
 ```
 
 备注：该项目用到 **AWS Bedrock Nova/Claude** 系列模型，因此需要注册并获取以上服务访问密钥。
+
+### 2.5 配置编辑（中国区使用硅基流动API）
+> Tips: 中国区需要提前获取硅基流动API Key
+
+运行以下命令创建.env 文件， **注意：请修改COMPATIBLE_API_KEY,COMPATIBLE_API_BASE等信息之后再运行**
+
+```bash
+cat << EOF > .env
+COMPATIBLE_API_KEY=<硅基流动的apikey>
+COMPATIBLE_API_BASE=https://api.siliconflow.cn
+LOG_DIR=./logs
+CHATBOT_SERVICE_PORT=8502
+MCP_SERVICE_HOST=127.0.0.1
+MCP_SERVICE_PORT=7002
+API_KEY=123456
+MAX_TURNS=200
+#不使用bedrock flag
+use_bedrock=0
+#如果不使用dynamodb，则删除下面一行
+ddb_table=mcp_user_config_table
+EOF
+```
+
+默认配置支持`DeepSeek-V3`, 如果需要支持其他模型（必须是支持tool use的模型），请自行修改[conf/config.json](conf/config.json)配置加入模型，例如：
+
+```json
+		{
+			"model_id": "Pro/deepseek-ai/DeepSeek-V3",
+			"model_name": "DeepSeek-V3-Pro"
+    }
+```
 
 ## 3. 运行
 
@@ -168,6 +212,7 @@ curl http://127.0.0.1:7002/v1/chat/completions \
     "model": "us.amazon.nova-pro-v1:0",
     "mcp_server_ids":["local_fs"],
     "stream":true,
+    "keep_session":false,
     "messages": [
       {
         "role": "user",
@@ -176,6 +221,7 @@ curl http://127.0.0.1:7002/v1/chat/completions \
     ]
   }'
 ```
+- 如果keep_session:true表示在服务器端保持session，服务器会保留历史消息和工具调用，客户端只需传入最新一轮的user message即可
 
 ### 3.3  (🚀 New) React UI
 - 🚀 基于Next.js 15和React 18构建的现代化前端，支持Dark/Light模式

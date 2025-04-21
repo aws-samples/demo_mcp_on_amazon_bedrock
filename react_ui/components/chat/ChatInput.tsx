@@ -30,7 +30,8 @@ export function ChatInput() {
     maxTokens,
     temperature,
     budgetTokens,
-    onlyNMostRecentImages
+    onlyNMostRecentImages,
+    keepSession
   } = useStore();
   
   // Get selected server IDs from mcpServers
@@ -144,7 +145,18 @@ export function ChatInput() {
       // We already have the modelId from our store
       
       // Prepare messages for API
-      const apiMessages = [...messages, userMessage];
+      let apiMessages;
+      
+      if (keepSession) {
+        // When keepSession is enabled, only send the system message and current user message
+        const systemMessage = messages.find(msg => msg.role === 'system');
+        apiMessages = systemMessage 
+          ? [systemMessage, userMessage] 
+          : [userMessage];
+      } else {
+        // When keepSession is disabled, send all messages
+        apiMessages = [...messages, userMessage];
+      }
       
       // Extra parameters
       const extraParams = {
@@ -164,6 +176,7 @@ export function ChatInput() {
           stream: true,
           maxTokens,
           temperature,
+          keepSession,
           extraParams
         });
         
@@ -300,6 +313,7 @@ export function ChatInput() {
           stream: false,
           maxTokens,
           temperature,
+          keepSession,
           extraParams
         });
         // Extract thinking from message

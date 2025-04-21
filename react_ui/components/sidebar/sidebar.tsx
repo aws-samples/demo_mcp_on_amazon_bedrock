@@ -28,6 +28,8 @@ export default function Sidebar({ onClose }: SidebarProps) {
     setEnableThinking,
     enableStream,
     setEnableStream,
+    keepSession,
+    setKeepSession,
     clearMessages,
     userId,
     setUserId,
@@ -236,6 +238,17 @@ export default function Sidebar({ onClose }: SidebarProps) {
                 id="enable-stream"
                 checked={enableStream}
                 onCheckedChange={setEnableStream}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label htmlFor="keep-session" className="text-sm font-medium">
+                Keep Session on Server
+              </label>
+              <Switch
+                id="keep-session"
+                checked={keepSession}
+                onCheckedChange={setKeepSession}
               />
             </div>
 

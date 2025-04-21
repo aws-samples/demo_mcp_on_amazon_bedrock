@@ -19,6 +19,12 @@ from botocore.exceptions import ClientError
 import random
 import time
 load_dotenv()  # load environment variables from .env
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
+)
+
 logger = logging.getLogger(__name__)
 CLAUDE_37_SONNET_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
 CLAUDE_35_HAIKU_MODEL_ID = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
@@ -35,7 +41,7 @@ class ChatClientStream(ChatClient):
         self.max_delay = 60 # Maximum backoff delay in seconds
         self.client_index = 0
         self.stop_flags = {} # Dict to track stop flags for streams
-
+    
     def get_bedrock_client_from_pool(self):
         if self.bedrock_client_pool:
             logger.info(f"get_bedrock_client_from_pool index: [{self.client_index}]")
@@ -46,10 +52,21 @@ class ChatClientStream(ChatClient):
         else:
             bedrock_client = self._get_bedrock_client()
         return bedrock_client
+
         
-    async def _process_stream_response(self, response) -> AsyncIterator[Dict]:
+    async def _process_stream_response(self, stream_id:str,response) -> AsyncIterator[Dict]:
         """Process the raw response from converse_stream"""
+        last_yield_time = time.time()
         for event in response['stream']:
+            current_time = time.time()
+            if current_time - last_yield_time > 0.1:  # 每100ms让出一次控制权，避免阻塞
+                await asyncio.sleep(0.001)
+                last_yield_time = current_time
+            # Check if we need to stop
+            if stream_id and stream_id in self.stop_flags and self.stop_flags[stream_id]:
+                logger.info(f"Stream {stream_id} was requested to stop")
+                yield {"type": "stopped", "data": {"message": "Stream stopped by user request"}}
+                break
             # logger.infos(event)
             # Handle message start
             if "messageStart" in event:
@@ -98,6 +115,7 @@ class ChatClientStream(ChatClient):
         """Set the stop flag for a stream to terminate it"""
         if stream_id in self.stop_flags:
             self.stop_flags[stream_id] = True
+            # Signal any waiting code immediately without waiting for next check in the streaming loop
             logger.info(f"Stopping stream: {stream_id}")
             return True
         logger.warning(f"Attempted to stop unknown stream: {stream_id}")
@@ -109,30 +127,37 @@ class ChatClientStream(ChatClient):
             del self.stop_flags[stream_id]
             logger.info(f"Unregistered stream: {stream_id}")
             
-    async def process_query_stream(self, query: str = "",
+    async def process_query_stream(self, 
             model_id="amazon.nova-lite-v1:0", max_tokens=1024, max_turns=30,temperature=0.1,
-            history=[], system=[],mcp_clients=None, mcp_server_ids=[],extra_params={},
+            messages=[], system=[],mcp_clients=None, mcp_server_ids=[],extra_params={},keep_session=None,
             stream_id=None) -> AsyncGenerator[Dict, None]:
         """Submit user query or history messages, and get streaming response.
         
         Similar to process_query but uses converse_stream API for streaming responses.
         """
+        logger.info(f'client input message list length:{len(messages)}')
+
+        if keep_session:
+            messages = self.messages + messages
+            system = self.system if self.system else system
+        else:
+            self.clear_history()
+        
+        logger.info(f'llm input message list length:{len(messages)}')
+            
         prompt_cache = True if model_id in [CLAUDE_37_SONNET_MODEL_ID,CLAUDE_35_HAIKU_MODEL_ID] else False
         prompt_cache_for_tool = True if model_id in [CLAUDE_37_SONNET_MODEL_ID,CLAUDE_35_HAIKU_MODEL_ID] else False
         cache_window = 2048 if model_id == CLAUDE_35_HAIKU_MODEL_ID else 1024
-        if query:
-            history.append({
-                    "role": "user",
-                    "content": [{"text": query}]
-            })
-        messages = history
 
         # get tools from mcp server
         tool_config = {"tools": []}
         if mcp_clients is not None:
             for mcp_server_id in mcp_server_ids:
                 tool_config_response = await mcp_clients[mcp_server_id].get_tool_config(server_id=mcp_server_id)
-                tool_config['tools'].extend(tool_config_response["tools"])
+                if tool_config_response:
+                    tool_config['tools'].extend(tool_config_response["tools"])
+                else:
+                    yield {"type": "stopped", "data": {"message": f"Get tool config from {mcp_server_id} failed, please restart the MCP server"}}
         logger.info(f"Tool config: {tool_config}")
         
         use_client_pool = True if self.bedrock_client_pool else False
@@ -242,13 +267,8 @@ class ChatClientStream(ChatClient):
                 turn_i += 1
                 # 收集所有需要调用的工具请求
                 tool_calls = []
-                async for event in self._process_stream_response(response):
+                async for event in self._process_stream_response(stream_id,response):
                     # logger.info(event)
-                    if stream_id and stream_id in self.stop_flags and self.stop_flags[stream_id]:
-                        logger.info(f"Stream {stream_id} was requested to stop")
-                        yield {"type": "stopped", "data": {"message": "Stream stopped by user request"}}
-                        break
-                    
                     if event['type'] == 'metadata':
                         tokens_need_cache += event['data']['usage']['inputTokens'] + event['data']['usage']['outputTokens']
                         logger.info(event)
@@ -403,8 +423,8 @@ class ChatClientStream(ChatClient):
                                 "role": "assistant",
                                 "content":   thinking_block+ tool_use_block + text_block if thinking_signature else text_block + tool_use_block
                             }     
-                            thinking_signature = ''
-                            thinking_text = ''
+                            # thinking_signature = ''
+                            # thinking_text = ''
                             messages.append(assistant_message)
 
                                 
@@ -429,6 +449,11 @@ class ChatClientStream(ChatClient):
                         # normal chat finished
                         elif stop_reason in ['end_turn','max_tokens','stop_sequence']:
                             # yield event
+                            assistant_message = {
+                                "role": "assistant",
+                                "content":   [{"text": text}] if text.strip() else []
+                            }    
+                            messages.append(assistant_message)
                             turn_i = max_turns
                             continue
 
@@ -437,7 +462,9 @@ class ChatClientStream(ChatClient):
                 yield {"type": "error", "data": {"error": str(e)}}
                 turn_i = max_turns
                 break
-                
+        
+        # Save the max history to session
+        self.messages = messages
+        self.system = system
         # Clean up the stop flag after streaming completes
-        if stream_id:
-            self.unregister_stream(stream_id)
+        self.unregister_stream(stream_id)
