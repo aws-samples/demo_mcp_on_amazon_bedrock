@@ -19,8 +19,8 @@ nohup python src/main.py --mcp-conf conf/config.json --user-conf conf/user_mcp_c
     --host ${MCP_SERVICE_HOST} --port ${MCP_SERVICE_PORT} > ${LOG_FILE1} 2>&1 &
 
 # Start Chatbot service 
-echo "Starting Chatbot service..."
-nohup streamlit run chatbot.py \
-    --server.port ${CHATBOT_SERVICE_PORT} > ${LOG_FILE2} 2>&1 &
+# echo "Starting Chatbot service..."
+# nohup streamlit run chatbot.py \
+#     --server.port ${CHATBOT_SERVICE_PORT} > ${LOG_FILE2} 2>&1 &
 
-echo "Services started. Check logs in ${LOG_DIR}"
+# echo "Services started. Check logs in ${LOG_DIR}"

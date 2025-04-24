@@ -58,7 +58,7 @@ class ChatClient:
                         "max_attempts": 3,
                         "mode": "standard",
                     },
-                    read_timeout=300,
+                    read_timeout=600,
                 )
             )
         if self.env['AWS_ACCESS_KEY_ID'] and self.env['AWS_SECRET_ACCESS_KEY']:
@@ -72,7 +72,7 @@ class ChatClient:
                         "max_attempts": 3,
                         "mode": "standard",
                     },
-                    read_timeout=300,
+                    read_timeout=600,
                 )
             )
         else:
@@ -83,7 +83,7 @@ class ChatClient:
                         "max_attempts": 3,
                         "mode": "standard",
                     },
-                    read_timeout=300,
+                    read_timeout=600,
                 ))
 
         return bedrock_client

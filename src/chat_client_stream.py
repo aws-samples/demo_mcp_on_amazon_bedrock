@@ -234,7 +234,7 @@ class ChatClientStream(ChatClient):
                         break
                     except ClientError as error:
                         logger.info(str(error))
-                        if error.response['Error']['Code'] == 'ThrottlingException':
+                        if error.response['Error']['Code'] in ['ThrottlingException','serviceUnavailableException'] :
                             if use_client_pool:
                                 bedrock_client = self.get_bedrock_client_from_pool()
             
@@ -263,6 +263,7 @@ class ChatClientStream(ChatClient):
                                     raise Exception("Maximum retry attempts reached. Service is still throttling requests.")
                         else:
                             raise error
+                        
 
                 turn_i += 1
                 # 收集所有需要调用的工具请求

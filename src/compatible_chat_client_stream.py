@@ -44,9 +44,12 @@ class CompatibleChatClientStream(ChatClient):
         self.client_index = 0
         self.stop_flags = {}  # Dict to track stop flags for streams
         # Initialize the OpenAI client
+        
         self.openai_client = OpenAI(
             api_key=self.api_key,
             base_url=self.api_base
+        ) if self.api_base else OpenAI(
+            api_key=self.api_key
         )
         
     def register_stream(self, stream_id):
@@ -205,6 +208,7 @@ class CompatibleChatClientStream(ChatClient):
         for message in messages:
             role = message.get("role", "user")
             content = []
+            tool_calls = []
             
             if isinstance(message.get("content"), list):
                 for item in message["content"]:
@@ -243,15 +247,47 @@ class CompatibleChatClientStream(ChatClient):
                                 "tool_call_id": tool_id
                             })
                             continue  # Skip adding this as part of regular message
+                        
+                        # Handle toolUse from assistant
+                        elif "toolUse" in item and role == "assistant":
+                            tool_use = item["toolUse"]
+                            tool_id = tool_use.get("toolUseId", "")
+                            tool_name = tool_use.get("name", "")
+                            tool_input = tool_use.get("input", {})
+                            
+                            # Convert to OpenAI tool_calls format
+                            tool_calls.append({
+                                "id": tool_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": json.dumps(tool_input) if isinstance(tool_input, dict) else tool_input
+                                }
+                            })
             
             # If we have content as a list of objects, convert to OpenAI format
             if content:
-                openai_messages.append({"role": role, "content": content})
+                if role == "assistant" and tool_calls:
+                    # If assistant has both content and tool calls
+                    openai_messages.append({
+                        "role": role, 
+                        "content": content,
+                        "tool_calls": tool_calls
+                    })
+                else:
+                    openai_messages.append({"role": role, "content": content})
+            # If assistant with only tool calls (no text content)
+            elif role == "assistant" and tool_calls:
+                openai_messages.append({
+                    "role": role,
+                    "content": "",
+                    "tool_calls": tool_calls
+                })
             # Otherwise if content is a single string
             elif isinstance(message.get("content"), str):
                 openai_messages.append({"role": role, "content": message["content"]})
             # If we have an empty content list (indicating this is a toolResult message we already processed)
-            elif not content and not any(item.get("toolResult") for item in message.get("content", [])):
+            elif not content and not any(item.get("toolResult") for item in message.get("content", [])) and not any(item.get("toolUse") for item in message.get("content", [])):
                 openai_messages.append({"role": role, "content": ""})
         
         return openai_messages
@@ -315,7 +351,7 @@ class CompatibleChatClientStream(ChatClient):
         request_payload = {
             "model": model_id,
             "messages": openai_messages,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_tokens,
             "temperature": temperature,
             "stream": True
         }
@@ -359,12 +395,6 @@ class CompatibleChatClientStream(ChatClient):
                 # Process the streaming response
                 async for event in self._process_openai_stream_response(stream_id,response):
                     # logger.info(event)
-                    # Check again if stream was stopped
-                    # if stream_id and stream_id in self.stop_flags and self.stop_flags[stream_id]:
-                    #     logger.info(f"Stream {stream_id} was requested to stop")
-                    #     yield {"type": "stopped", "data": {"message": "Stream stopped by user request"}}
-                    #     break
-                    
                     # Forward the event to the caller
                     yield event
                     
@@ -509,9 +539,11 @@ class CompatibleChatClientStream(ChatClient):
                                     min_removal_threshold=image_truncation_threshold,
                                 )
                             
+                            # logger.info(f"before convert:{messages}")
                             # Update OpenAI messages format for the next request
                             openai_messages = self._convert_messages_to_openai_format(messages, system)
                             request_payload["messages"] = openai_messages
+                            # logger.info(openai_messages)
                             
                             # Reset state
                             current_content = ""

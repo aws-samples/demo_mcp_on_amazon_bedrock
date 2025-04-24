@@ -173,11 +173,45 @@ Please use the maximum computational power and token limit available in a single
       partialize: (state) => {
         // Create a copy of messages without base64 images to stay under localStorage quota
         const messagesForStorage = state.messages.map(message => {
-          // Keep the message content but remove large tool use data with base64 images
+          // Clean up message content for image data
+          let cleanContent = message.content;
+          
+          // If content is an array (likely contains images), clean up large base64 data
+          if (Array.isArray(message.content)) {
+            cleanContent = message.content.map((item: ContentItem) => {
+              // If it's an image_url item with base64 data, replace the data
+              if (item.type === 'image_url' && 
+                  item.image_url?.url && 
+                  item.image_url.url.startsWith('data:')) {
+                return {
+                  ...item,
+                  image_url: {
+                    ...item.image_url,
+                    url: '[BASE64_IMAGE_DATA_REMOVED]'
+                  }
+                };
+              }
+              
+              // If it's a file item with base64 data, replace the data
+              if (item.type === 'file' && item.file?.file_data) {
+                return {
+                  ...item,
+                  file: {
+                    ...item.file,
+                    file_data: '[BASE64_FILE_DATA_REMOVED]'
+                  }
+                };
+              }
+              
+              return item;
+            });
+          }
+          
+          // Clean up tool use data
           const { toolUse, ...rest } = message;
           
-          // If there's no tool use data, return the message as is
-          if (!toolUse) return rest;
+          // If there's no tool use data, return the message with clean content
+          if (!toolUse) return { ...rest, content: cleanContent };
           
           // Otherwise clean up the tool use data to remove any large base64 images
           const cleanToolUse = toolUse.map(tool => {
@@ -204,7 +238,7 @@ Please use the maximum computational power and token limit available in a single
             return cleanTool;
           });
           
-          return { ...rest, toolUse: cleanToolUse };
+          return { ...rest, content: cleanContent, toolUse: cleanToolUse };
         });
         
         // Return a filtered state object for localStorage

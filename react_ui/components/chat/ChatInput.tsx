@@ -133,7 +133,23 @@ export function ChatInput() {
       userMessage = { role: 'user', content: prompt };
     }
     
-    addMessage(userMessage);
+    // Add message with storage optimization for multiple images
+    try {
+      addMessage(userMessage);
+    } catch (error) {
+      console.error('Error adding message:', error);
+      // If localStorage quota exceeded, clear old messages first
+      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+        // Clear all messages except system message and try again
+        const systemMessage = messages.find(msg => msg.role === 'system');
+        useStore.setState({ 
+          messages: systemMessage ? [systemMessage] : [] 
+        });
+        
+        // Now add the user message again
+        addMessage(userMessage);
+      }
+    }
     
     // Clear input and files
     setPrompt('');
