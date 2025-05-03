@@ -1,13 +1,5 @@
 #!/bin/bash
-# Load environment variables more safely
-while read -r line; do
-    # Skip comments and empty lines
-    [[ "$line" =~ ^#.*$ ]] && continue
-    [[ -z "$line" ]] && continue
-    
-    # Export valid environment variables
-    export "$line"
-done < <(grep -v '^[[:space:]]*$' .env | grep -v '^[[:space:]]*#')
+export $(grep -v '^#' .env | xargs)
 
 export PYTHONPATH=./src:$PYTHONPATH
 source .venv/bin/activate

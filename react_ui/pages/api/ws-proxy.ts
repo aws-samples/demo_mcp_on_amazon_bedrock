@@ -9,44 +9,37 @@ export const config = {
   },
 };
 
+// Base URL for the backend server (fetched from environment variable)
+const MCP_BASE_URL = process.env.SERVER_MCP_BASE_URL || 'http://localhost:7002';
+
+// Helper to get full URL with proper protocol
+function getBackendUrl(endpoint: string): string {
+  let baseUrl = MCP_BASE_URL;
+  
+  // Ensure the base URL has a proper protocol
+  if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+    // Default to https if not specified
+    baseUrl = `https://${baseUrl}`;
+    console.warn(`WebSocket proxy: BASE_URL missing protocol, using: ${baseUrl}`);
+  }
+  
+  return `${baseUrl}${endpoint}`;
+}
+
 // Create a proxy server instance
 const proxy = httpProxy.createProxyServer({
   ws: true, // Enable WebSocket support
-  xfwd: true // Forward the original client IP
+  xfwd: true, // Forward the original client IP
+  secure: false // Allow insecure SSL connections (self-signed certificates)
 });
 
-// This handler will proxy WebSocket connections to the backend server
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Get the target URL from environment variable, same as other API routes
-  const baseTarget = process.env.SERVER_MCP_BASE_URL || 'http://localhost:7002';
-  
-  // Get the WebSocket path from query parameters
-  const wsPath = req.query.path as string || '/ws/user-audio';
-  
-  // Create a new URL object to handle query parameters properly
-  const targetUrl = new URL(wsPath, baseTarget);
-  
-  // Copy all query parameters except 'path' (which we've already used)
-  Object.keys(req.query).forEach(key => {
-    if (key !== 'path') {
-      // Handle array query parameters correctly
-      const value = req.query[key];
-      if (Array.isArray(value)) {
-        value.forEach(v => targetUrl.searchParams.append(key, v));
-      } else if (value) {
-        targetUrl.searchParams.append(key, value as string);
-      }
-    }
-  });
-  
-  // Form the complete target URL
-  const target = targetUrl.toString();
-  
-  // Log proxy attempt with detailed information
-  console.log(`WebSocket proxy: Connecting to ${target}`, {
-    originalUrl: req.url,
-    query: req.query,
-    isWebSocket: req.headers['upgrade']?.toLowerCase() === 'websocket',
+// Enhanced logging for debugging
+function logRequest(req: NextApiRequest, targetUrl: string) {
+  console.log(`[WebSocket Proxy] Request info:`, {
+    method: req.method,
+    url: req.url,
+    targetUrl: targetUrl,
+    isWebSocket: Boolean(req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket'),
     headers: {
       upgrade: req.headers.upgrade,
       connection: req.headers.connection,
@@ -54,6 +47,34 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       secWebSocketVersion: req.headers['sec-websocket-version'] ? '✓ Present' : '✗ Missing'
     }
   });
+}
+
+// This handler will proxy WebSocket connections to the backend server
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Get the WebSocket path from query parameters
+  const wsPath = req.query.path as string || '/ws/user-audio';
+  
+  // Create the backend URL (ensuring protocol is correct)
+  const targetUrl = getBackendUrl(wsPath);
+  
+  // Craft the target object for the proxy
+  const target = new URL(targetUrl);
+  
+  // Copy all query parameters except 'path' (which we've already used)
+  Object.keys(req.query).forEach(key => {
+    if (key !== 'path') {
+      // Handle array query parameters correctly
+      const value = req.query[key];
+      if (Array.isArray(value)) {
+        value.forEach(v => target.searchParams.append(key, v));
+      } else if (value) {
+        target.searchParams.append(key, value as string);
+      }
+    }
+  });
+  
+  // Log detailed request information for debugging
+  logRequest(req, target.toString());
   
   // Create set of headers to forward
   const headers: Record<string, string> = {};
@@ -79,28 +100,48 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (typeof req.headers.connection === 'string') {
     headers.connection = req.headers.connection;
   }
-  headers.host = targetUrl.host;
+  
+  // Set proper host header
+  headers.host = target.host;
+  
+  // Forward auth headers
+  if (req.headers.authorization) {
+    headers.authorization = req.headers.authorization as string;
+  }
+  if (req.headers['x-user-id']) {
+    headers['x-user-id'] = req.headers['x-user-id'] as string;
+  }
 
   return new Promise<void>((resolve, reject) => {
     // Handle proxy errors
     proxy.once('error', (err: Error) => {
-      console.error('WebSocket proxy error:', err);
-      res.statusCode = 502;
-      res.end(`WebSocket proxy error: ${err.message}`);
+      console.error('[WebSocket Proxy] Error:', err);
+      if (!res.headersSent) {
+        res.status(502).json({
+          error: 'WebSocket proxy error',
+          message: err.message
+        });
+      } else {
+        try {
+          res.end(`WebSocket proxy error: ${err.message}`);
+        } catch (endError) {
+          // Already ended
+        }
+      }
       reject(err);
     });
 
     // Forward the request to the target server
     proxy.web(req, res, {
-      target,
+      target: target.toString(),
       ws: true, // Enable WebSocket support
       changeOrigin: true,
       headers: headers,
       followRedirects: true,
-      secure: false, // Allow insecure connections (ignore SSL errors)
+      secure: false, // Don't verify SSL certificates
     }, (err: Error | undefined) => {
       if (err) {
-        console.error('WebSocket proxy failed:', err);
+        console.error('[WebSocket Proxy] Failed:', err);
         reject(err);
       } else {
         resolve();

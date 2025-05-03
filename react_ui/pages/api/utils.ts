@@ -4,6 +4,23 @@ import { NextApiRequest, NextApiResponse } from 'next';
 // Using localhost works with both direct deployment and Docker with host network mode
 const MCP_BASE_URL = process.env.SERVER_MCP_BASE_URL || 'http://localhost:7002';
 
+// Helper to debug connection issues
+console.log(`API Utility using backend URL: ${MCP_BASE_URL}`);
+
+// Verify the URL has the correct protocol based on the environment variable
+function getFullUrl(endpoint: string): string {
+  let baseUrl = MCP_BASE_URL;
+  
+  // Ensure the base URL has a proper protocol
+  if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+    // Default to https if not specified
+    baseUrl = `https://${baseUrl}`;
+    console.warn(`BASE_URL missing protocol, using: ${baseUrl}`);
+  }
+  
+  return `${baseUrl}${endpoint}`;
+}
+
 // Get standardized headers for backend requests
 export const getBackendHeaders = (req: NextApiRequest) => {
   // Copy relevant headers from the client request
@@ -31,8 +48,8 @@ export async function proxyGetRequest(
   endpoint: string
 ) {
   try {
-    // Construct backend URL
-    const url = `${MCP_BASE_URL}${endpoint}`;
+    // Construct backend URL using the helper function
+    const url = getFullUrl(endpoint);
     
     // Make the request to the backend
     const response = await fetch(url, {
@@ -60,8 +77,8 @@ export async function proxyPostRequest(
   endpoint: string
 ) {
   try {
-    // Construct backend URL
-    const url = `${MCP_BASE_URL}${endpoint}`;
+    // Construct backend URL using the helper function
+    const url = getFullUrl(endpoint);
     
     // Make the request to the backend
     const response = await fetch(url, {
@@ -159,8 +176,8 @@ export async function proxyDeleteRequest(
   endpoint: string
 ) {
   try {
-    // Construct backend URL
-    const url = `${MCP_BASE_URL}${endpoint}`;
+    // Construct backend URL using the helper function
+    const url = getFullUrl(endpoint);
     
     // Make the request to the backend
     const response = await fetch(url, {
