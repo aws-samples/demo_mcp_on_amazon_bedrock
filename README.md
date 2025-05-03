@@ -186,23 +186,6 @@ EOF
 
 ## 3. 运行
 
-### 3.0 HTTPS支持（可选, 使用Nova Sonic语音实时对话需要启用）
-服务器现在支持HTTPS连接，可以通过以下步骤启用：
-
-1. 在`.env`文件中设置`USE_HTTPS=1`
-2. 如果您有SSL证书和密钥，请在`.env`文件中指定路径：
-   ```
-   USE_HTTPS=1  # Set to 1 to enable HTTPS
-   SSL_CERT_FILE=<path-to-certificate>
-   SSL_KEY_FILE=<path-to-key>
-   ```
-3. 如果没有证书和密钥，系统将自动生成自签名证书。您也可以手动运行以下命令生成：
-   ```bash
-   ./generate_certs.sh
-   ```
-
-**注意**：自签名证书在生产环境中不安全，仅供开发和测试使用。在生产环境中，请使用由受信任的证书颁发机构颁发的证书。
-
 ### 3.1 该项目包含1个后端服务和一个streamlit 前端， 前后端通过rest api对接：
 - **Chat 接口服务（Bedrock+MCP）**，可对外提供 Chat 接口、同时托管多个 MCP server、支持历史多轮对话输入、响应内容附加了工具调用中间结果、暂不支持流式响应
 - **ChatBot UI**，跟上述 Chat 接口服务通信，提供多轮对话、管理 MCP 的 Web UI 演示服务
@@ -310,6 +293,24 @@ read the content of rows.txt file
 - 方式2，按字段添加 
 
 此时在已有 MCP Server 列表中就可以看到新添加项，勾选即可启动该 MCP Server。
+
+
+### 3.5 HTTPS支持（可选）
+服务器现在支持HTTPS连接，可以通过以下步骤启用：
+
+1. 在`.env`文件中设置`USE_HTTPS=1`
+2. 如果您有SSL证书和密钥，请在`.env`文件中指定路径：
+   ```
+   USE_HTTPS=1  # Set to 1 to enable HTTPS
+   SSL_CERT_FILE=<path-to-certificate>
+   SSL_KEY_FILE=<path-to-key>
+   ```
+3. 如果没有证书和密钥，系统将自动生成自签名证书。您也可以手动运行以下命令生成：
+   ```bash
+   ./generate_certs.sh
+   ```
+
+**注意**：自签名证书在生产环境中不安全，仅供开发和测试使用。在生产环境中，请使用由受信任的证书颁发机构颁发的证书。
 
 ## 4. CDK安装（新增）
 [README](cdk/README.me)

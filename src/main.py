@@ -148,6 +148,46 @@ async def initialize_user_servers(session: UserSession):
     # 保存配置        
     # await save_user_mcp_configs()
 
+async def initialize_new_mcp_servers(session: UserSession, requested_server_ids: List[str]):
+    """初始化用户请求的新MCP服务器"""
+    if not requested_server_ids:
+        return
+        
+    user_id = session.user_id
+    # 找出需要初始化的新服务器
+    new_server_ids = [server_id for server_id in requested_server_ids if server_id not in session.mcp_clients]
+    
+    if not new_server_ids:
+        logger.info(f"User Id {user_id} 没有新的MCP服务器需要初始化")
+        return
+        
+    logger.info(f"User Id {user_id} 需要初始化新的MCP服务器: {new_server_ids}")
+    
+    # 获取所有服务器配置
+    server_configs = await get_user_server_configs(user_id)
+    global_server_configs = get_global_server_configs()
+    server_configs = {**server_configs, **global_server_configs}
+    
+    # 只初始化新的服务器
+    for server_id in new_server_ids:
+        if server_id in server_configs:
+            try:
+                config = server_configs[server_id]
+                mcp_client = MCPClient(name=f"{session.user_id}_{server_id}")
+                await mcp_client.connect_to_server(
+                    command=config.get('command'),
+                    server_url=config.get('url'),
+                    server_script_args=config.get("args", []),
+                    server_script_envs=config.get("env", {})
+                )
+                session.mcp_clients[server_id] = mcp_client
+                await save_user_server_config(user_id, server_id, config)
+                logger.info(f"User Id {user_id} 初始化新的MCP服务器 {server_id} 成功")
+            except Exception as e:
+                logger.error(f"User Id {user_id} 初始化新的MCP服务器 {server_id} 失败: {e}")
+        else:
+            logger.warning(f"MCP服务器配置未找到: {server_id}")
+
 async def get_or_create_user_session(
     request: Request,
     auth: HTTPAuthorizationCredentials = Security(security),
@@ -516,6 +556,11 @@ async def websocket_user_audio(websocket: WebSocket):
         if user_id in user_sessions:
             user_session = user_sessions[user_id]
             user_session.last_active = datetime.now()
+            
+            # 检查是否有新的MCP服务器需要初始化
+            if mcp_server_ids:
+                logger.info(f"WebSocket客户端 {client_id} 检查是否需要初始化新的MCP服务器: {mcp_server_ids}")
+                await initialize_new_mcp_servers(user_session, mcp_server_ids)
         else:
             # 创建新会话
             user_session = UserSession(user_id)
@@ -1027,6 +1072,11 @@ async def chat_completions(
     session = await get_or_create_user_session(request, auth)
     # 记录会话活动
     session.last_active = datetime.now()
+
+    # 检查是否有新的MCP服务器需要初始化
+    if data.mcp_server_ids:
+        logger.info(f"聊天请求检查是否需要初始化新的MCP服务器: {data.mcp_server_ids}")
+        await initialize_new_mcp_servers(session, data.mcp_server_ids)
 
     logger.info(f'keep_session:{data.keep_session}')
 

@@ -141,21 +141,6 @@ Default configuration supports `DeepSeek-V3`. If you need to support other model
     }
 ```
 ## 3. Running
-### HTTPS Support (Optional, required for Nova Sonic voice real-time conversations)
-
-The server now accommodates secure HTTPS connections, which can be enabled through the following procedure:
-
-1. Configure your `.env` file by setting `USE_HTTPS=1`
-2. If you possess SSL credentials, specify their locations within the `.env` file:
-   ```
-   SSL_CERT_FILE=<path-to-certificate>
-   SSL_KEY_FILE=<path-to-key>
-   ```
-3. In the absence of existing credentials, the system will automatically generate self-signed certificates. Alternatively, you may manually execute the following command to create them:
-   ```bash
-   ./generate_certs.sh
-   ```"
-
 ### 3.1 This project includes 1 backend service and a streamlit frontend, with front and back ends connected via REST API:
 - **Chat interface service (Bedrock+MCP)**, which can provide Chat interfaces externally, host multiple MCP servers simultaneously, support multi-turn dialogue input history, and append tool call intermediate results to response content. Streaming responses are not supported yet.
 - **ChatBot UI**, communicates with the above Chat interface service, providing multi-turn dialogue and MCP management Web UI demo service
@@ -252,6 +237,23 @@ Then click [Add MCP Server], fill in the following parameters in the popup menu 
 ```
 - Method 2, add by field 
 At this point, you can see the newly added item in the existing MCP Server list. Check it to launch that MCP Server.
+
+### 3.5 HTTPS Support (Optional)
+
+The server now accommodates secure HTTPS connections, which can be enabled through the following procedure:
+
+1. Configure your `.env` file by setting `USE_HTTPS=1`
+2. If you possess SSL credentials, specify their locations within the `.env` file:
+   ```
+   SSL_CERT_FILE=<path-to-certificate>
+   SSL_KEY_FILE=<path-to-key>
+   ```
+3. In the absence of existing credentials, the system will automatically generate self-signed certificates. Alternatively, you may manually execute the following command to create them:
+   ```bash
+   ./generate_certs.sh
+   ```"
+
+
 ## 4. CDK Installation (New)
 [README](cdk/README.me)
 ## 5 Demo cases

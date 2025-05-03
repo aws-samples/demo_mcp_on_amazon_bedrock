@@ -300,14 +300,20 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
       // Always use non-secure WebSockets for backend connection,
       // regardless of whether the frontend is secure or not
       // This is a workaround for backends that don't support secure WebSockets
-      const serverUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:7002';
+      const baseUrl = process.env.NEXT_PUBLIC_MCP_BASE_URL || '/api';
       
-      // 将http/https转换为ws
-      const wsBase = serverUrl.replace(/^https?/, 'ws');
+      // Use the Next.js API proxy for WebSocket connection
+      // The WebSocket proxy handles the connection to the backend server
+      const isSecure = window.location.protocol === 'https:';
+      const wsProtocol = isSecure ? 'wss' : 'ws';
+      const wsHost = window.location.host; // Get current hostname and port
       
-      console.log('Note: Using non-secure WebSockets. This may cause browser security warnings.');
+      // Create full WebSocket URL with proxy endpoint
+      // Format: ws(s)://hostname:port/api/ws-proxy?path=/ws/user-audio&other=params
+      let wsUrl = `${wsProtocol}://${wsHost}${baseUrl}/ws-proxy?path=/ws/user-audio`;
       
-      let wsUrl = `${wsBase}/ws/user-audio?token=${apiKey}&user_id=${userId}&client_id=${userId}`;
+      // Add authentication parameters
+      wsUrl += `&token=${apiKey}&user_id=${userId}&client_id=${userId}`;
       
       const serverIds = mcpServerIds && mcpServerIds.length > 0 ? mcpServerIds.join(',') : '';
       if (serverIds.length > 0){

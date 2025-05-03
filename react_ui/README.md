@@ -82,7 +82,7 @@ openssl req -x509 -newkey rsa:4096 -keyout certificates/key.pem -out certificate
 USE_HTTPS=true docker-compose up -d
 ```
 
-5. 在浏览器中访问 [http://localhost:3000/chat](http://localhost:3000/chat)
+5. 在浏览器中访问 [http://{ip}:3000/chat](http://{ip}:3000/chat)， 如果启用HTTPS，则访问[https://{ip}:3000/chat](https://{ip}:3000/chat)
 
 - 其他Docker常用命令
 ```bash
