@@ -134,11 +134,15 @@ AWS_SECRET_ACCESS_KEY=(可选)<your-secret-key>
 AWS_REGION=<your-region>
 LOG_DIR=./logs
 CHATBOT_SERVICE_PORT=8502
-MCP_SERVICE_HOST=127.0.0.1
+MCP_SERVICE_HOST=0.0.0.0
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
 INACTIVE_TIME=10
+# HTTPS Configuration
+USE_HTTPS=0  # Set to 1 to enable HTTPS
+SSL_CERT_FILE=certs/server.crt  # Path to SSL certificate file
+SSL_KEY_FILE=certs/server.key   # Path to SSL key file
 #如果不使用dynamodb，则删除下面一行
 ddb_table=mcp_user_config_table
 EOF
@@ -157,13 +161,17 @@ COMPATIBLE_API_KEY=<硅基流动的apikey>
 COMPATIBLE_API_BASE=https://api.siliconflow.cn
 LOG_DIR=./logs
 CHATBOT_SERVICE_PORT=8502
-MCP_SERVICE_HOST=127.0.0.1
+MCP_SERVICE_HOST=0.0.0.0
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
 INACTIVE_TIME=10
 #不使用bedrock flag
 use_bedrock=0
+# HTTPS Configuration
+USE_HTTPS=0  # Set to 1 to enable HTTPS
+SSL_CERT_FILE=certs/server.crt  # Path to SSL certificate file
+SSL_KEY_FILE=certs/server.key   # Path to SSL key file
 #如果不使用dynamodb，则删除下面一行
 ddb_table=mcp_user_config_table
 EOF
@@ -179,6 +187,22 @@ EOF
 ```
 
 ## 3. 运行
+
+### 3.0 HTTPS支持（可选, 使用Nova Sonic语音实时对话需要启用）
+服务器现在支持HTTPS连接，可以通过以下步骤启用：
+
+1. 在`.env`文件中设置`USE_HTTPS=1`
+2. 如果您有SSL证书和密钥，请在`.env`文件中指定路径：
+   ```
+   SSL_CERT_FILE=<path-to-certificate>
+   SSL_KEY_FILE=<path-to-key>
+   ```
+3. 如果没有证书和密钥，系统将自动生成自签名证书。您也可以手动运行以下命令生成：
+   ```bash
+   ./generate_certs.sh
+   ```
+
+**注意**：自签名证书在生产环境中不安全，仅供开发和测试使用。在生产环境中，请使用由受信任的证书颁发机构颁发的证书。
 
 ### 3.1 该项目包含1个后端服务和一个streamlit 前端， 前后端通过rest api对接：
 - **Chat 接口服务（Bedrock+MCP）**，可对外提供 Chat 接口、同时托管多个 MCP server、支持历史多轮对话输入、响应内容附加了工具调用中间结果、暂不支持流式响应

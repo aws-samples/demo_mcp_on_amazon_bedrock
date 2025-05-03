@@ -4,6 +4,7 @@ SPDX-License-Identifier: MIT-0
 """
 """
 FastAPI server for Bedrock Chat with MCP support
+Supports both HTTP and HTTPS connections
 """
 import os
 import sys
@@ -104,37 +105,6 @@ class UserSession:
         if cleanup_tasks:
             await asyncio.gather(*cleanup_tasks)
             logger.info(f"用户 {self.user_id} 的 {len(cleanup_tasks)} 个MCP客户端已清理")
-    
-    async def process_audio(self, audio_data: bytes):
-        """处理用户的音频数据"""
-        # 这里可以添加用户特定的音频处理逻辑
-        # 例如，可以将音频数据发送到Amazon Transcribe进行语音识别
-        # 或者将其存储起来以供后续处理
-        try:
-            # 示例：记录音频数据大小
-            logger.info(f"用户 {self.user_id} 处理音频数据: {len(audio_data)} 字节")
-            
-            # 实际项目中，这里应该调用语音识别API
-            # 例如：text = await call_transcribe_service(audio_data)
-            
-            # 模拟语音识别结果
-            # 在实际应用中，这里应该是真实的语音识别结果
-            recognized_text = "这是一个语音识别的示例结果"
-            
-            # 返回处理结果
-            return {
-                "status": "success",
-                "message": f"处理了 {len(audio_data)} 字节的音频数据",
-                "text": recognized_text
-            }
-        except Exception as e:
-            logger.error(f"用户 {self.user_id} 处理音频数据失败: {e}")
-            return {
-                "status": "error",
-                "message": f"处理音频数据失败: {str(e)}"
-            }
-
-
 
 async def get_api_key(auth: HTTPAuthorizationCredentials = Security(security)):
     if auth.credentials == API_KEY:
@@ -146,7 +116,6 @@ async def initialize_user_servers(session: UserSession):
     """初始化用户特有的MCP服务器"""
     user_id = session.user_id
     
-    # 获取用户服务器配置（现在是异步方法）
     server_configs = await get_user_server_configs(user_id)
     
     global_server_configs = get_global_server_configs()
@@ -1276,6 +1245,8 @@ if __name__ == '__main__':
     parser.add_argument('--mcp-conf', default='', help="the mcp servers json config file")
     parser.add_argument('--user-conf', default='conf/user_mcp_configs.json', 
                        help="用户MCP服务器配置文件路径")
+    parser.add_argument('--ssl-keyfile', default='', help="SSL key file path for HTTPS")
+    parser.add_argument('--ssl-certfile', default='', help="SSL certificate file path for HTTPS")
     args = parser.parse_args()
     
     # 设置用户配置文件路径环境变量
@@ -1297,7 +1268,20 @@ if __name__ == '__main__':
                 # 加载模型配置
                 for model_conf in conf.get('models', []):
                     llm_model_list[model_conf['model_id']] = model_conf['model_name']
-        config = uvicorn.Config(app, host=args.host, port=args.port, loop=loop)
+        # Configure uvicorn with SSL if certificate and key files are provided
+        if args.ssl_certfile and args.ssl_keyfile:
+            logger.info(f"Starting server with HTTPS support")
+            config = uvicorn.Config(
+                app, 
+                host=args.host, 
+                port=args.port, 
+                loop=loop,
+                ssl_keyfile=args.ssl_keyfile,
+                ssl_certfile=args.ssl_certfile
+            )
+        else:
+            logger.info(f"Starting server with HTTP only")
+            config = uvicorn.Config(app, host=args.host, port=args.port, loop=loop)
         server = uvicorn.Server(config)
         loop.run_until_complete(server.serve())
     finally:

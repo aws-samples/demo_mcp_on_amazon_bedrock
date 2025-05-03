@@ -100,10 +100,13 @@ AWS_SECRET_ACCESS_KEY=(optional)<your-secret-key>
 AWS_REGION=<your-region>
 LOG_DIR=./logs
 CHATBOT_SERVICE_PORT=8502
-MCP_SERVICE_HOST=127.0.0.1
+MCP_SERVICE_HOST=0.0.0.0
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
+USE_HTTPS=0  # Set to 1 to enable HTTPS
+SSL_CERT_FILE=certs/server.crt  # Path to SSL certificate file
+SSL_KEY_FILE=certs/server.key   # Path to SSL key file
 #If not using dynamodb, delete the line below
 ddb_table=mcp_user_config_table
 EOF
@@ -118,12 +121,15 @@ COMPATIBLE_API_KEY=<Silicon Flow apikey>
 COMPATIBLE_API_BASE=https://api.siliconflow.cn
 LOG_DIR=./logs
 CHATBOT_SERVICE_PORT=8502
-MCP_SERVICE_HOST=127.0.0.1
+MCP_SERVICE_HOST=0.0.0.0
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
 #Flag for not using bedrock
 use_bedrock=0
+USE_HTTPS=0  # Set to 1 to enable HTTPS
+SSL_CERT_FILE=certs/server.crt  # Path to SSL certificate file
+SSL_KEY_FILE=certs/server.key   # Path to SSL key file
 #If not using dynamodb, delete the line below
 ddb_table=mcp_user_config_table
 EOF
@@ -136,6 +142,21 @@ Default configuration supports `DeepSeek-V3`. If you need to support other model
     }
 ```
 ## 3. Running
+### HTTPS Support (Optional, required for Nova Sonic voice real-time conversations)
+
+The server now accommodates secure HTTPS connections, which can be enabled through the following procedure:
+
+1. Configure your `.env` file by setting `USE_HTTPS=1`
+2. If you possess SSL credentials, specify their locations within the `.env` file:
+   ```
+   SSL_CERT_FILE=<path-to-certificate>
+   SSL_KEY_FILE=<path-to-key>
+   ```
+3. In the absence of existing credentials, the system will automatically generate self-signed certificates. Alternatively, you may manually execute the following command to create them:
+   ```bash
+   ./generate_certs.sh
+   ```"
+
 ### 3.1 This project includes 1 backend service and a streamlit frontend, with front and back ends connected via REST API:
 - **Chat interface service (Bedrock+MCP)**, which can provide Chat interfaces externally, host multiple MCP servers simultaneously, support multi-turn dialogue input history, and append tool call intermediate results to response content. Streaming responses are not supported yet.
 - **ChatBot UI**, communicates with the above Chat interface service, providing multi-turn dialogue and MCP management Web UI demo service
@@ -198,7 +219,7 @@ Now using the new React UI
 - [Installation Steps](react_ui/README.md)
 ![alt text](react_ui/image.png)
 ![alt text](react_ui/image-1.png)
-#### ChatBot UI 
+#### ChatBot UI (Deprecated)
 After starting, check the log `logs/start_chatbot.log` to confirm there are no errors, then open [service address](http://localhost:3000/chat) in your browser to experience the enhanced Bedrock large model ChatBot capabilities with MCP.
 Since file system operations, SQLite database, and other MCP Servers are already built-in, you can try asking the following questions consecutively for a hands-on experience:
 ```
