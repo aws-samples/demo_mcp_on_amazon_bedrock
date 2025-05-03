@@ -4,6 +4,8 @@ const nextConfig = {
   // Set up environment variables for server-side code
   env: {
     SERVER_MCP_BASE_URL: process.env.SERVER_MCP_BASE_URL,
+    // Add a flag to explicitly ignore SSL cert validation
+    NODE_TLS_REJECT_UNAUTHORIZED: '0', // This allows self-signed certificates
   },
   // Allow CORS for API routes
   async headers() {
@@ -23,6 +25,14 @@ const nextConfig = {
   serverRuntimeConfig: {
     // Keep connections alive for streaming
     keepAliveTimeout: 120000*10, // 20 minutes
+  },
+  // Disable strict SSL for backend connections (self-signed certificates)
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Set NODE_TLS_REJECT_UNAUTHORIZED for the Node.js process
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    }
+    return config;
   }
 };
 

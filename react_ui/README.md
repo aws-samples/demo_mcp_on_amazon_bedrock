@@ -81,6 +81,8 @@ mkdir -p certificates
 openssl req -x509 -newkey rsa:4096 -keyout certificates/key.pem -out certificates/cert.pem -days 365 -nodes -subj "/CN=localhost"
 USE_HTTPS=true docker-compose up -d
 ```
+- 碰到如下告警，点击Proceed即可
+![alt text](image-2.png)
 
 5. 在浏览器中访问 [http://{ip}:3000/chat](http://{ip}:3000/chat)， 如果启用HTTPS，则访问[https://{ip}:3000/chat](https://{ip}:3000/chat)
 

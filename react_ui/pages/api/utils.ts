@@ -51,18 +51,39 @@ export async function proxyGetRequest(
     // Construct backend URL using the helper function
     const url = getFullUrl(endpoint);
     
+    console.log(`[API Proxy] GET request to ${url}`);
+    
     // Make the request to the backend
     const response = await fetch(url, {
       headers: getBackendHeaders(req),
     });
 
-    // Get response data
+    console.log(`[API Proxy] Response status: ${response.status}`);
+    
+    // Check if the response was successful
+    if (!response.ok) {
+      let errorText = 'Unknown error';
+      try {
+        // Try to get error details
+        errorText = await response.text();
+      } catch (e) {
+        console.error('Failed to get error text:', e);
+      }
+      
+      console.error(`[API Proxy] Backend error: ${response.status}`, errorText);
+      return res.status(response.status).json({ 
+        error: `Backend service error: ${response.statusText}`,
+        details: errorText
+      });
+    }
+
+    // Get response data as JSON
     const data = await response.json();
 
     // Forward the response to the client
     res.status(response.status).json(data);
   } catch (error) {
-    console.error(`Error in proxy GET request to ${endpoint}:`, error);
+    console.error(`[API Proxy] Error in GET request to ${endpoint}:`, error);
     res.status(500).json({ 
       error: 'Failed to proxy request to backend service',
       message: error instanceof Error ? error.message : 'Unknown error'
@@ -80,12 +101,16 @@ export async function proxyPostRequest(
     // Construct backend URL using the helper function
     const url = getFullUrl(endpoint);
     
+    console.log(`[API Proxy] POST request to ${url}`);
+    
     // Make the request to the backend
     const response = await fetch(url, {
       method: 'POST',
       headers: getBackendHeaders(req),
       body: JSON.stringify(req.body),
     });
+
+    console.log(`[API Proxy] Response status: ${response.status}`);
 
     // Get content type to determine how to handle response
     const contentType = response.headers.get('content-type');
@@ -179,11 +204,32 @@ export async function proxyDeleteRequest(
     // Construct backend URL using the helper function
     const url = getFullUrl(endpoint);
     
+    console.log(`[API Proxy] DELETE request to ${url}`);
+    
     // Make the request to the backend
     const response = await fetch(url, {
       method: 'DELETE',
       headers: getBackendHeaders(req),
     });
+    
+    console.log(`[API Proxy] Response status: ${response.status}`);
+    
+    // Check if the response was successful
+    if (!response.ok) {
+      let errorText = 'Unknown error';
+      try {
+        // Try to get error details
+        errorText = await response.text();
+      } catch (e) {
+        console.error('Failed to get error text:', e);
+      }
+      
+      console.error(`[API Proxy] Backend error: ${response.status}`, errorText);
+      return res.status(response.status).json({ 
+        error: `Backend service error: ${response.statusText}`,
+        details: errorText
+      });
+    }
 
     // Get response data
     const data = await response.json();
@@ -191,7 +237,7 @@ export async function proxyDeleteRequest(
     // Forward the response to the client
     res.status(response.status).json(data);
   } catch (error) {
-    console.error(`Error in proxy DELETE request to ${endpoint}:`, error);
+    console.error(`[API Proxy] Error in DELETE request to ${endpoint}:`, error);
     res.status(500).json({ 
       error: 'Failed to proxy request to backend service',
       message: error instanceof Error ? error.message : 'Unknown error'
