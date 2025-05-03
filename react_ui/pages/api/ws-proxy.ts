@@ -10,7 +10,10 @@ export const config = {
 };
 
 // Create a proxy server instance
-const proxy = httpProxy.createProxyServer();
+const proxy = httpProxy.createProxyServer({
+  ws: true, // Enable WebSocket support
+  xfwd: true // Forward the original client IP
+});
 
 // This handler will proxy WebSocket connections to the backend server
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -19,10 +22,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   
   // Get the WebSocket path from query parameters
   const wsPath = req.query.path as string || '/ws/user-audio';
-  
-  // Since we're extracting the 'path' parameter to build our target URL,
-  // we need to create a clean URL for the backend without this parameter
-  // but with all other query parameters preserved
   
   // Create a new URL object to handle query parameters properly
   const targetUrl = new URL(wsPath, baseTarget);
@@ -43,41 +42,65 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   // Form the complete target URL
   const target = targetUrl.toString();
   
-  // Log proxy attempt
-  console.log(`Proxying connection to ${target}`, {
+  // Log proxy attempt with detailed information
+  console.log(`WebSocket proxy: Connecting to ${target}`, {
     originalUrl: req.url,
     query: req.query,
-    isWebSocket: req.headers['upgrade']?.toLowerCase() === 'websocket'
+    isWebSocket: req.headers['upgrade']?.toLowerCase() === 'websocket',
+    headers: {
+      upgrade: req.headers.upgrade,
+      connection: req.headers.connection,
+      secWebSocketKey: req.headers['sec-websocket-key'] ? '✓ Present' : '✗ Missing',
+      secWebSocketVersion: req.headers['sec-websocket-version'] ? '✓ Present' : '✗ Missing'
+    }
   });
+  
+  // Create set of headers to forward
+  const headers: Record<string, string> = {};
+  
+  // Add key headers needed for WebSocket protocol
+  if (typeof req.headers['sec-websocket-key'] === 'string') {
+    headers['sec-websocket-key'] = req.headers['sec-websocket-key'];
+  }
+  if (typeof req.headers['sec-websocket-version'] === 'string') {
+    headers['sec-websocket-version'] = req.headers['sec-websocket-version'];
+  }
+  if (typeof req.headers['sec-websocket-extensions'] === 'string') {
+    headers['sec-websocket-extensions'] = req.headers['sec-websocket-extensions'];
+  }
+  if (typeof req.headers['sec-websocket-protocol'] === 'string') {
+    headers['sec-websocket-protocol'] = req.headers['sec-websocket-protocol'];
+  }
+  
+  // Add critical connection headers
+  if (typeof req.headers.upgrade === 'string') {
+    headers.upgrade = req.headers.upgrade;
+  }
+  if (typeof req.headers.connection === 'string') {
+    headers.connection = req.headers.connection;
+  }
+  headers.host = targetUrl.host;
 
   return new Promise<void>((resolve, reject) => {
-    // Set up error handling
+    // Handle proxy errors
     proxy.once('error', (err: Error) => {
-      console.error('Proxy error:', err);
-      res.statusCode = 500;
-      res.end('Proxy error');
+      console.error('WebSocket proxy error:', err);
+      res.statusCode = 502;
+      res.end(`WebSocket proxy error: ${err.message}`);
       reject(err);
     });
 
-    // Handle regular HTTP requests
-    proxy.on('proxyReq', (proxyReq: ClientRequest, req: IncomingMessage) => {
-      // Forward any authentication headers if present
-      if (req.headers.authorization) {
-        proxyReq.setHeader('Authorization', req.headers.authorization);
-      }
-      if (req.headers['x-user-id']) {
-        proxyReq.setHeader('X-User-ID', req.headers['x-user-id']);
-      }
-    });
-
-    // Proxy the request - will automatically handle WebSocket upgrades
+    // Forward the request to the target server
     proxy.web(req, res, {
       target,
       ws: true, // Enable WebSocket support
       changeOrigin: true,
+      headers: headers,
+      followRedirects: true,
+      secure: false, // Allow insecure connections (ignore SSL errors)
     }, (err: Error | undefined) => {
       if (err) {
-        console.error('Failed to proxy request:', err);
+        console.error('WebSocket proxy failed:', err);
         reject(err);
       } else {
         resolve();

@@ -327,9 +327,22 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
       // Add voice_id parameter to WebSocket URL
       wsUrl += `&voice_id=${currentVoice}`;
       
-      console.log('Connecting to WebSocket URL:', wsUrl);
+      // Log the connection attempt with more details
+      console.log('Attempting WebSocket connection:', {
+        url: wsUrl,
+        protocol: wsProtocol,
+        host: wsHost,
+        path: `${baseUrl}/ws-proxy?path=/ws/user-audio`,
+        isSecure
+      });
       
-      websocketRef.current = new WebSocket(wsUrl);
+      // Create WebSocket with explicit error handling
+      try {
+        websocketRef.current = new WebSocket(wsUrl);
+      } catch (wsError) {
+        console.error('Error creating WebSocket:', wsError);
+        throw new Error(`Failed to create WebSocket: ${wsError}`);
+      }
       
       websocketRef.current.onopen = () => {
         setIsConnected(true);
