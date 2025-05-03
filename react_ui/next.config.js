@@ -4,8 +4,6 @@ const nextConfig = {
   // Set up environment variables for server-side code
   env: {
     SERVER_MCP_BASE_URL: process.env.SERVER_MCP_BASE_URL,
-    // Add a flag to explicitly ignore SSL cert validation
-    NODE_TLS_REJECT_UNAUTHORIZED: '0', // This allows self-signed certificates
   },
   // Allow CORS for API routes
   async headers() {
@@ -30,6 +28,7 @@ const nextConfig = {
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Set NODE_TLS_REJECT_UNAUTHORIZED for the Node.js process
+      // This allows self-signed certificates in server-side calls
       process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     }
     return config;
