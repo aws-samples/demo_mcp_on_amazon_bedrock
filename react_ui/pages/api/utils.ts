@@ -41,6 +41,24 @@ export const getBackendHeaders = (req: NextApiRequest) => {
   return headers;
 };
 
+// Configure fetch to ignore SSL certificate errors for self-signed certificates
+// This is necessary for development environments with self-signed certs
+const httpsAgent = new (require('https').Agent)({
+  rejectUnauthorized: false // Accept self-signed certificates
+});
+
+// Create fetch options with SSL handling
+const getFetchOptions = (options = {}) => {
+  // Only apply HTTPS agent in Node.js environment (not in browser)
+  if (typeof window === 'undefined') {
+    return {
+      ...options,
+      agent: httpsAgent
+    };
+  }
+  return options;
+};
+
 // Proxy a GET request to the backend
 export async function proxyGetRequest(
   req: NextApiRequest,
@@ -53,10 +71,10 @@ export async function proxyGetRequest(
     
     console.log(`[API Proxy] GET request to ${url}`);
     
-    // Make the request to the backend
-    const response = await fetch(url, {
+    // Make the request to the backend with SSL certificate handling
+    const response = await fetch(url, getFetchOptions({
       headers: getBackendHeaders(req),
-    });
+    }));
 
     console.log(`[API Proxy] Response status: ${response.status}`);
     
@@ -103,12 +121,12 @@ export async function proxyPostRequest(
     
     console.log(`[API Proxy] POST request to ${url}`);
     
-    // Make the request to the backend
-    const response = await fetch(url, {
+    // Make the request to the backend with SSL certificate handling
+    const response = await fetch(url, getFetchOptions({
       method: 'POST',
       headers: getBackendHeaders(req),
       body: JSON.stringify(req.body),
-    });
+    }));
 
     console.log(`[API Proxy] Response status: ${response.status}`);
 
@@ -206,11 +224,11 @@ export async function proxyDeleteRequest(
     
     console.log(`[API Proxy] DELETE request to ${url}`);
     
-    // Make the request to the backend
-    const response = await fetch(url, {
+    // Make the request to the backend with SSL certificate handling
+    const response = await fetch(url, getFetchOptions({
       method: 'DELETE',
       headers: getBackendHeaders(req),
-    });
+    }));
     
     console.log(`[API Proxy] Response status: ${response.status}`);
     

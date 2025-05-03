@@ -26,11 +26,21 @@ function getBackendUrl(endpoint: string): string {
   return `${baseUrl}${endpoint}`;
 }
 
-// Create a proxy server instance
+// Import Node's HTTPS module for SSL agent configuration
+const https = require('https');
+
+// Create HTTPS agent that accepts self-signed certificates
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false // Accept self-signed certificates
+});
+
+// Create a proxy server instance with improved options
 const proxy = httpProxy.createProxyServer({
   ws: true, // Enable WebSocket support
   xfwd: true, // Forward the original client IP
-  secure: false // Allow insecure SSL connections (self-signed certificates)
+  secure: false, // Allow insecure SSL connections (self-signed certificates)
+  agent: httpsAgent, // Use our agent that ignores certificate validation
+  changeOrigin: true // Handle domain changes properly
 });
 
 // Enhanced logging for debugging
