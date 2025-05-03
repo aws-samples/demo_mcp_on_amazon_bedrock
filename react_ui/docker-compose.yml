@@ -11,11 +11,22 @@ services:
       - .env.local
     volumes:
       - ./.env.local:/app/.env.local
+      # Mount certificates directory for HTTPS
+      - ./certificates:/app/certificates
     environment:
       - NODE_ENV=production
       - NODE_OPTIONS=--http-parser=legacy --max-http-header-size=16384
+      # Control whether to use HTTPS (true) or HTTP (false)
+      - USE_HTTPS=${USE_HTTPS:-false}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      # Use a conditional health check based on USE_HTTPS
+      test: |
+        /bin/sh -c '
+        if [ "$$USE_HTTPS" = "true" ]; then
+          wget --no-check-certificate -qO- https://localhost:3000/api/health;
+        else
+          wget -qO- http://localhost:3000/api/health;
+        fi'
       interval: 30s
       timeout: 10s
       retries: 3

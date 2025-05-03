@@ -70,8 +70,16 @@ NEXT_PUBLIC_MCP_BASE_URL=/api
 > 使用host网络模式时，容器的端口会直接映射到宿主机上，无需额外的端口映射。
 
 4. 使用Docker Compose构建并启动服务
+- Run with HTTP (default)  
 ```bash
 docker-compose up -d
+```
+
+- Run with HTTPS (使用Nova Sonic实时对话)  
+```bash
+mkdir -p certificates
+openssl req -x509 -newkey rsa:4096 -keyout certificates/key.pem -out certificates/cert.pem -days 365 -nodes -subj "/CN=localhost"
+USE_HTTPS=true docker-compose up -d
 ```
 
 5. 在浏览器中访问 [http://localhost:3000/chat](http://localhost:3000/chat)

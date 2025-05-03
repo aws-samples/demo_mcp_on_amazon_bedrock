@@ -23,5 +23,9 @@ RUN npm run build
 # Expose the port the app runs on
 EXPOSE 3000
 
-# Command to run the application
-CMD ["npm", "run", "start", "--", "-H", "0.0.0.0"]
+# Command to run the application, conditionally using HTTPS
+CMD if [ "$USE_HTTPS" = "true" ]; then \
+      npm run start:https; \
+    else \
+      npm run start -- -H 0.0.0.0; \
+    fi

@@ -139,12 +139,11 @@ MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
 INACTIVE_TIME=10
+ddb_table=mcp_user_config_table #如果不使用dynamodb，则删除这一行
 # HTTPS Configuration
 USE_HTTPS=0  # Set to 1 to enable HTTPS
 SSL_CERT_FILE=certs/server.crt  # Path to SSL certificate file
 SSL_KEY_FILE=certs/server.key   # Path to SSL key file
-#如果不使用dynamodb，则删除下面一行
-ddb_table=mcp_user_config_table
 EOF
 ```
 
@@ -168,12 +167,11 @@ MAX_TURNS=200
 INACTIVE_TIME=10
 #不使用bedrock flag
 use_bedrock=0
+ddb_table=mcp_user_config_table #如果不使用dynamodb，则删除这一行
 # HTTPS Configuration
 USE_HTTPS=0  # Set to 1 to enable HTTPS
 SSL_CERT_FILE=certs/server.crt  # Path to SSL certificate file
 SSL_KEY_FILE=certs/server.key   # Path to SSL key file
-#如果不使用dynamodb，则删除下面一行
-ddb_table=mcp_user_config_table
 EOF
 ```
 
@@ -194,6 +192,7 @@ EOF
 1. 在`.env`文件中设置`USE_HTTPS=1`
 2. 如果您有SSL证书和密钥，请在`.env`文件中指定路径：
    ```
+   USE_HTTPS=1  # Set to 1 to enable HTTPS
    SSL_CERT_FILE=<path-to-certificate>
    SSL_KEY_FILE=<path-to-key>
    ```

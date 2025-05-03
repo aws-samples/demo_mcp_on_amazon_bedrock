@@ -104,11 +104,11 @@ MCP_SERVICE_HOST=0.0.0.0
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
+ddb_table=mcp_user_config_table #If not using dynamodb, delete this row
 USE_HTTPS=0  # Set to 1 to enable HTTPS
 SSL_CERT_FILE=certs/server.crt  # Path to SSL certificate file
 SSL_KEY_FILE=certs/server.key   # Path to SSL key file
-#If not using dynamodb, delete the line below
-ddb_table=mcp_user_config_table
+
 EOF
 ```
 Note: This project uses **AWS Bedrock Nova/Claude** series models, so you need to register and obtain access keys for the above services.
@@ -127,11 +127,10 @@ API_KEY=123456
 MAX_TURNS=200
 #Flag for not using bedrock
 use_bedrock=0
+ddb_table=mcp_user_config_table #If not using dynamodb, delete this row
 USE_HTTPS=0  # Set to 1 to enable HTTPS
 SSL_CERT_FILE=certs/server.crt  # Path to SSL certificate file
 SSL_KEY_FILE=certs/server.key   # Path to SSL key file
-#If not using dynamodb, delete the line below
-ddb_table=mcp_user_config_table
 EOF
 ```
 Default configuration supports `DeepSeek-V3`. If you need to support other models (must be models that support tool use), please modify the [conf/config.json](conf/config.json) configuration to add models, for example:

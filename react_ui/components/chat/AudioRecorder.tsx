@@ -297,9 +297,15 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const connectWebSocket = (explicitVoice?: VoiceType): Promise<boolean> => {
     return new Promise((resolve) => {
     try {
+      // Always use non-secure WebSockets for backend connection,
+      // regardless of whether the frontend is secure or not
+      // This is a workaround for backends that don't support secure WebSockets
       const serverUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:7002';
-      // 将http/https转换为ws/wss
-      const wsBase = serverUrl.replace(/^http/, 'ws');
+      
+      // 将http/https转换为ws
+      const wsBase = serverUrl.replace(/^https?/, 'ws');
+      
+      console.log('Note: Using non-secure WebSockets. This may cause browser security warnings.');
       
       let wsUrl = `${wsBase}/ws/user-audio?token=${apiKey}&user_id=${userId}&client_id=${userId}`;
       
