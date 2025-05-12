@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 import requests
 from openai import OpenAI
 from chat_client_stream import ChatClientStream
-from chat_client import ChatClient
+from compatible_chat_client import CompatibleChatClient
 
 from mcp_client import MCPClient
 from utils import maybe_filter_to_n_most_recent_images, remove_cache_checkpoint
@@ -31,26 +31,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class CompatibleChatClientStream(ChatClient):
-    """Extended ChatClient with OpenAI v1/chat/completions API compatibility"""
+class CompatibleChatClientStream(CompatibleChatClient):
+    """Extended ChatClient with OpenAI v1/chat/completions API compatibility for streaming"""
     
-    def __init__(self, credential_file='', api_key='', api_base=None):
-        super().__init__(credential_file)
-        self.api_key = api_key or os.environ.get('COMPATIBLE_API_KEY')
-        self.api_base = api_base or os.environ.get('COMPATIBLE_API_BASE')
-        self.max_retries = 10  # Maximum number of retry attempts
-        self.base_delay = 10  # Initial backoff delay in seconds
-        self.max_delay = 60  # Maximum backoff delay in seconds
-        self.client_index = 0
+    def __init__(self, credential_file='', api_key='', api_base=None, access_key_id='', secret_access_key='', region=''):
+        super().__init__(credential_file, access_key_id, secret_access_key, region, api_key, api_base)
+        # Stream-specific properties
         self.stop_flags = {}  # Dict to track stop flags for streams
-        # Initialize the OpenAI client
-        
-        self.openai_client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.api_base
-        ) if self.api_base else OpenAI(
-            api_key=self.api_key
-        )
         
     def register_stream(self, stream_id):
         """Register a new stream with a stop flag"""
@@ -72,9 +59,8 @@ class CompatibleChatClientStream(ChatClient):
         if stream_id in self.stop_flags:
             del self.stop_flags[stream_id]
             logger.info(f"Unregistered stream: {stream_id}")
-
             
-    async def _process_openai_stream_response(self,stream_id:str, stream_response) -> AsyncIterator[Dict]:
+    async def _process_openai_stream_response(self, stream_id:str, stream_response) -> AsyncIterator[Dict]:
         """Process streaming response from OpenAI SDK format"""
         try:
             # For SDK streamed responses, we iterate through the chunks
@@ -191,131 +177,9 @@ class CompatibleChatClientStream(ChatClient):
             logger.error(f"Error processing OpenAI stream response: {e}")
             yield {"type": "error", "data": {"error": str(e)}}
     
-    def _convert_messages_to_openai_format(self, messages, system=None):
-        """Convert Bedrock message format to OpenAI format"""
-        openai_messages = []
-        
-        # Add system message if provided
-        if system:
-            system_text = ""
-            for item in system:
-                if isinstance(item, dict) and "text" in item:
-                    system_text += item["text"]
-            if system_text:
-                openai_messages.append({"role": "system", "content": system_text})
-        
-        # Process other messages
-        for message in messages:
-            role = message.get("role", "user")
-            content = []
-            tool_calls = []
-            
-            if isinstance(message.get("content"), list):
-                for item in message["content"]:
-                    if isinstance(item, dict):
-                        # Handle text content
-                        if "text" in item:
-                            content.append({"type": "text", "text": item["text"]})
-                        
-                        # Handle image content
-                        elif "image" in item and "source" in item["image"]:
-                            img_source = item["image"]["source"]
-                            if "bytes" in img_source:
-                                img_base64 = base64.b64encode(img_source["bytes"]).decode('utf-8')
-                                img_format = item["image"].get("format", "png")
-                                content.append({
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/{img_format};base64,{img_base64}"
-                                    }
-                                })
-                        
-                        # Handle tool results
-                        elif "toolResult" in item:
-                            # OpenAI uses tool_calls and tool_call_id
-                            tool_result = item["toolResult"]
-                            tool_id = tool_result.get("toolUseId", "")
-                            tool_content = []
-                            
-                            for content_item in tool_result.get("content", []):
-                                if "text" in content_item:
-                                    tool_content.append(content_item["text"])
-                            
-                            openai_messages.append({
-                                "role": "tool",
-                                "content": "\n".join(tool_content),
-                                "tool_call_id": tool_id
-                            })
-                            continue  # Skip adding this as part of regular message
-                        
-                        # Handle toolUse from assistant
-                        elif "toolUse" in item and role == "assistant":
-                            tool_use = item["toolUse"]
-                            tool_id = tool_use.get("toolUseId", "")
-                            tool_name = tool_use.get("name", "")
-                            tool_input = tool_use.get("input", {})
-                            
-                            # Convert to OpenAI tool_calls format
-                            tool_calls.append({
-                                "id": tool_id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_name,
-                                    "arguments": json.dumps(tool_input) if isinstance(tool_input, dict) else tool_input
-                                }
-                            })
-            
-            # If we have content as a list of objects, convert to OpenAI format
-            if content:
-                if role == "assistant" and tool_calls:
-                    # If assistant has both content and tool calls
-                    openai_messages.append({
-                        "role": role, 
-                        "content": content,
-                        "tool_calls": tool_calls
-                    })
-                else:
-                    openai_messages.append({"role": role, "content": content})
-            # If assistant with only tool calls (no text content)
-            elif role == "assistant" and tool_calls:
-                openai_messages.append({
-                    "role": role,
-                    "content": "",
-                    "tool_calls": tool_calls
-                })
-            # Otherwise if content is a single string
-            elif isinstance(message.get("content"), str):
-                openai_messages.append({"role": role, "content": message["content"]})
-            # If we have an empty content list (indicating this is a toolResult message we already processed)
-            elif not content and not any(item.get("toolResult") for item in message.get("content", [])) and not any(item.get("toolUse") for item in message.get("content", [])):
-                openai_messages.append({"role": role, "content": ""})
-        
-        return openai_messages
-    
-    def _convert_tools_config(self, tools_config):
-        """Convert Bedrock tool config to OpenAI format"""
-        openai_tools = []
-        
-        if not tools_config or "tools" not in tools_config:
-            return openai_tools
-        
-        for tool in tools_config["tools"]:
-            if "toolSpec" in tool:
-                spec = tool["toolSpec"]
-                openai_tools.append({
-                    "type": "function",
-                    "function": {
-                        "name": spec["name"],
-                        "description": spec.get("description", ""),
-                        "parameters": json.loads(spec["inputSchema"]["json"]) if isinstance(spec["inputSchema"]["json"], str) else spec["inputSchema"]["json"]
-                    }
-                })
-        
-        return openai_tools
-    
     async def process_query_stream(self, 
             model_id="", max_tokens=1024, max_turns=30, temperature=0.1,
-            messages=[], system=[], mcp_clients=None, mcp_server_ids=[], extra_params={},keep_session=None,
+            messages=[], system=[], mcp_clients=None, mcp_server_ids=[], extra_params={}, keep_session=None,
             stream_id=None) -> AsyncGenerator[Dict, None]:
         """Submit user query or history messages, and get streaming response using OpenAI API.
         
@@ -393,8 +257,7 @@ class CompatibleChatClientStream(ChatClient):
                 response = self.openai_client.chat.completions.create(**request_payload)
                 
                 # Process the streaming response
-                async for event in self._process_openai_stream_response(stream_id,response):
-                    # logger.info(event)
+                async for event in self._process_openai_stream_response(stream_id, response):
                     # Forward the event to the caller
                     yield event
                     
@@ -424,11 +287,13 @@ class CompatibleChatClientStream(ChatClient):
                     # Handle tool use input in content block stop
                     if event["type"] == "block_stop":
                         if current_tooluse_input:
-                            #取出最近添加的tool,把input str转成json
-                            # logger.info(current_tooluse_input)
+                            # Parse the tool input JSON if it's a string
                             current_tool_use = tool_calls[-1]
-                            if current_tool_use:
-                                current_tool_use["input"] = json.loads(current_tooluse_input)
+                            if current_tool_use and current_tooluse_input.strip():
+                                try:
+                                    current_tool_use["input"] = json.loads(current_tooluse_input)
+                                except json.JSONDecodeError:
+                                    logger.error(f"Failed to parse tool input as JSON: {current_tooluse_input}")
                                 current_tooluse_input = ''
                             
                     # Handle message stop and tool use
@@ -437,14 +302,6 @@ class CompatibleChatClientStream(ChatClient):
                         
                         # Handle tool use if needed
                         if stop_reason == "tool_use" and tool_calls:
-                            # Parse any remaining tool input as JSON
-                            for tool in tool_calls:
-                                if isinstance(tool.get("input"), str) and tool["input"].strip():
-                                    try:
-                                        tool["input"] = json.loads(tool["input"])
-                                    except json.JSONDecodeError:
-                                        logger.error(f"Failed to parse tool input as JSON: {tool['input']}")
-                            
                             # Execute all tool calls in parallel
                             async def execute_tool_call(tool):
                                 logger.info("Call tool: %s" % tool)
@@ -539,11 +396,9 @@ class CompatibleChatClientStream(ChatClient):
                                     min_removal_threshold=image_truncation_threshold,
                                 )
                             
-                            # logger.info(f"before convert:{messages}")
                             # Update OpenAI messages format for the next request
                             openai_messages = self._convert_messages_to_openai_format(messages, system)
                             request_payload["messages"] = openai_messages
-                            # logger.info(openai_messages)
                             
                             # Reset state
                             current_content = ""

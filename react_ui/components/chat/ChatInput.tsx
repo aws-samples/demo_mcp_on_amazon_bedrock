@@ -3,18 +3,25 @@
 import { useState, FormEvent, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { useStore, Message } from '@/lib/store';
+import { v4 as uuidv4 } from 'uuid';
 import { sendChatRequest, processStreamResponse, stopStream } from '@/lib/api/chat';
 import { extractThinking, extractToolUse, extractToolInput} from '@/lib/utils';
 import { FileUpload, FileItem } from './FileUpload';
-import { Paperclip } from 'lucide-react';
+import { Paperclip, Mic, MicOff } from 'lucide-react';
+import AudioRecorder from './AudioRecorder';
 
-export function ChatInput() {
+interface ChatInputProps {
+  disabled?: boolean;
+}
+
+export function ChatInput({ disabled = false }: ChatInputProps) {
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentStreamId, setCurrentStreamId] = useState<string | null>(null);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [showFileUpload, setShowFileUpload] = useState(false);
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
   const abortControllerRef = useRef<{ abort: () => void } | null>(null);
   
   const {
@@ -393,10 +400,74 @@ export function ChatInput() {
     setFiles(files.filter(file => file.id !== fileId));
   };
   
+  const handleTranscription = (text: string, isUser?: boolean) => {
+    // Add the message with the appropriate role based on the isUser flag
+    addMessage({
+      role: isUser ? 'user' : 'assistant',
+      content: text
+    });
+  };
+  
+  // Handle tool use data from WebSocket
+  const handleToolUse = (toolUseData: any) => {
+    console.log('Tool use data received:', toolUseData);
+    const { messages } = useStore.getState();
+    // Create a new assistant message if one doesn't exist
+    const lastMessage = messages[messages.length - 1];
+    // console.log('lastMessage:',lastMessage)
+    if (!lastMessage || lastMessage.role !== 'assistant') {
+      addMessage({
+        role: 'assistant',
+        content: '[using tool]',
+        toolInput:toolUseData,
+        toolUse: [toolUseData]
+      });
+    } else {
+      // Update the last assistant message with the tool use data
+      const currentToolUse = lastMessage.toolUse || [];
+      updateLastMessage(
+        lastMessage.content || '[using tool]',
+        lastMessage.thinking,
+        [...currentToolUse, toolUseData],
+        lastMessage.toolInput
+      );
+    }
+  };
+  
+  // Handle tool result data from WebSocket
+  const handleToolResult = (toolResultData: any) => {
+    console.log('Tool result data received:', toolResultData);
+    const { messages } = useStore.getState();
+    // Find the corresponding tool use by ID
+    const lastMessage = messages[messages.length - 1];
+    // console.log('lastMessage:',lastMessage)
+    if (lastMessage && lastMessage.role === 'assistant' && lastMessage.toolUse) {
+      const toolUse = lastMessage.toolUse;
+      
+      // Create a formatted tool result object
+      const toolResult = {
+        toolUseId: toolResultData.toolUseId,
+        content: toolResultData.content || []
+      };
+      
+      // Add the tool result to the message
+      updateLastMessage(
+        lastMessage.content || '',
+        lastMessage.thinking,
+        [...toolUse, toolResult],
+        lastMessage.toolInput
+      );
+    }
+  };
+  
+  const toggleVoiceMode = () => {
+    setIsVoiceMode(!isVoiceMode);
+  };
+  
   return (
     <div className="p-4 border-t">
       {showFileUpload && (
-        <FileUpload 
+        <FileUpload
           files={files}
           onAddFiles={handleAddFiles}
           onRemoveFile={handleRemoveFile}
@@ -415,25 +486,49 @@ export function ChatInput() {
           <Paperclip className="h-5 w-5" />
         </Button>
         
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={`h-10 w-10 ${isVoiceMode ? 'bg-blue-200 dark:bg-blue-700' : ''}`}
+          onClick={toggleVoiceMode}
+          disabled={isLoading || disabled}
+        >
+          {isVoiceMode ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+        </Button>
+        
         <div className="relative flex-1">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder={files.length > 0 ? "Add a message or send files..." : "Type your message..."}
-            className="w-full p-3 pr-12 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[60px]"
-            rows={1}
-            disabled={isLoading}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit(e);
-              }
-            }}
-          />
+          {isVoiceMode ? (
+            <div className="w-full min-h-[60px] border border-gray-300 rounded-md">
+              <AudioRecorder
+                apiKey={process.env.NEXT_PUBLIC_API_KEY || ''}
+                userId={userId}
+                mcpServerIds={selectedServers}
+                onTranscription={handleTranscription}
+                onToolUse={handleToolUse}
+                onToolResult={handleToolResult}
+              />
+            </div>
+          ) : (
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder={disabled ? "Loading MCP servers..." : files.length > 0 ? "Add a message or send files..." : "Type your message..."}
+              className="w-full p-3 pr-12 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none min-h-[60px]"
+              rows={1}
+              disabled={isLoading || disabled}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
+              }}
+            />
+          )}
         </div>
         
         {isStreaming ? (
-          <Button 
+          <Button
             type="button"
             onClick={handleStopGeneration}
             className="h-10 bg-red-500 hover:bg-red-600"
@@ -441,12 +536,12 @@ export function ChatInput() {
             Stop
           </Button>
         ) : (
-          <Button 
-            type="submit" 
-            disabled={isLoading || (!prompt.trim() && files.length === 0) || !selectedModel}
+          <Button
+            type="submit"
+            disabled={isLoading || disabled || (!prompt.trim() && files.length === 0) || !selectedModel}
             className="h-10"
           >
-            {isLoading ? 'Sending...' : 'Send'}
+            {isLoading ? 'Sending...' : disabled ? 'Loading...' : 'Send'}
           </Button>
         )}
       </form>

@@ -1,7 +1,12 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
 // Base URL for the MCP server backend (internal only)
+// Use the protocol specified in SERVER_MCP_BASE_URL
 const MCP_BASE_URL = process.env.SERVER_MCP_BASE_URL || 'http://localhost:7002';
+
+// Configure fetch to ignore SSL errors for self-signed certificates
+// This is safe because we're making the request from the server side
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 // Handler for stopping active streaming requests
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

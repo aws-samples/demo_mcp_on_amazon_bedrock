@@ -39,9 +39,6 @@ sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.6/docker
 sudo chmod +x /usr/local/bin/docker-compose
 ln -s /usr/bin/docker-compose  /usr/local/bin/docker-compose
 ```
-
-#### 安装步骤
-
 1. 克隆仓库之后
 ```bash
 cd demo_mcp_on_amazon_bedrock/react_ui
@@ -52,7 +49,9 @@ cd demo_mcp_on_amazon_bedrock/react_ui
 cp .env.example .env.local
 ```
 
-3. 编辑`.env.local`文件，添加必要的环境变量（Docker会自动从该文件加载环境变量）
+
+#### Option 1: HTTP模式
+1. 编辑`.env.local`文件，添加必要的环境变量（Docker会自动从该文件加载环境变量）
 ```
 # API Key for authentication
 NEXT_PUBLIC_API_KEY=123456
@@ -69,14 +68,53 @@ NEXT_PUBLIC_MCP_BASE_URL=/api
 > 这样容器可以直接使用localhost访问宿主机上运行的服务，简化了配置。
 > 使用host网络模式时，容器的端口会直接映射到宿主机上，无需额外的端口映射。
 
-4. 使用Docker Compose构建并启动服务
+2. 使用Docker Compose构建并启动服务
 ```bash
 docker-compose up -d
 ```
 
-5. 在浏览器中访问 [http://localhost:3000/chat](http://localhost:3000/chat)
+3. 如果是本地部署，则在浏览器中访问 [http://localhost:3000/chat](http://localhost:3000/chat) 如果在ec2部署，则访问ec2 ip
 
-- 其他Docker常用命令
+### Option 2.HTTPS模式部署（使用Nova Sonic实时语音对话需要）
+⚠️ 当前端使用 HTTPS 运行时，需要通过 HTTPS 连接到后端，因此后端也需要用HTTPS部署。  
+
+1. 编辑 `react_ui/.env.local` 文件（如果不存在则创建）：
+```
+# API Key for authentication
+NEXT_PUBLIC_API_KEY=123456
+
+# Base URL for MCP service - Server side (internal)
+# 使用与后端相同的协议（HTTP 或 HTTPS，这里始终保持localhost即可，不用更换其他ip）
+SERVER_MCP_BASE_URL=https://localhost:7002
+
+# Base URL for MCP service - Client side (now uses Next.js API routes)
+NEXT_PUBLIC_MCP_BASE_URL=/api
+
+# Base URL for direct client-side API access (用于WebSockets，如果是在ec2部署，这里要替换成ec2 ip)
+NEXT_PUBLIC_API_BASE_URL=https://<ec2_ip>:7002
+```
+
+2. 确保以下环境变量的协议（http:// 或 https://）与后端服务器的实际运行协议匹配：
+   - `SERVER_MCP_BASE_URL`：用于服务器端API请求
+   - `NEXT_PUBLIC_API_BASE_URL`：用于WebSocket连接和客户端直接API请求
+
+3. 如果您使用 `start_all.sh` 脚本启动应用程序，请更改`.env` 文件中的 `USE_HTTPS=1`。
+
+4. 启动访问UI
+在`react_ui`目录中运行：
+```
+docker-compose up mcpui-https -d
+```
+
+5. 打开浏览器并导航至：
+```
+https://<ec2_ip>:3000/chat  # React UI 前端
+```
+
+注意：您可能会看到关于证书是自签名的浏览器警告。对于本地开发，您可以通过点击"高级"，然后"继续前往 localhost（不安全）"安全地继续。由于前端和后端使用相同的证书，一旦您信任了一个服务的证书，另一个服务也会被自动信任。
+
+
+#### 其他Docker常用命令
 ```bash
 # 查看容器日志
 docker logs -f mcp-bedrock-ui
@@ -90,6 +128,9 @@ docker-compose down
 # 重新构建并启动（代码更新后）
 docker-compose up -d --build
 ```
+
+
+
 
 ### 使用Node.js直接部署（开发模式）
 

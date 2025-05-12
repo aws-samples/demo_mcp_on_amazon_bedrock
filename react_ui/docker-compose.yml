@@ -5,7 +5,6 @@ services:
       dockerfile: Dockerfile
     container_name: mcp-bedrock-ui
     restart: unless-stopped
-    # 使用host网络模式，直接共享宿主机网络，可以直接访问localhost
     network_mode: "host"
     env_file:
       - .env.local
@@ -20,3 +19,33 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    # Default command is used from Dockerfile
+    
+  mcpui-https:
+    profiles: ["https"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-bedrock-ui-https
+    restart: unless-stopped
+    network_mode: "host"
+    env_file:
+      - .env.local
+    volumes:
+      - ./.env.local:/app/.env.local
+      # Mount SSL certificates from host to container
+      - ./certificates/cert.pem:/app/certificates/cert.pem
+      - ./certificates/key.pem:/app/certificates/key.pem
+    environment:
+      - NODE_ENV=production
+      - NODE_OPTIONS=--http-parser=legacy --max-http-header-size=16384
+      # SSL certificate environment variables if needed by your app
+      - SSL_CERT_PATH=/app/certificates/cert.pem
+      - SSL_KEY_PATH=/app/certificates/key.pem
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:443/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: ["npm", "run", "start:https", "--", "-H", "0.0.0.0"]

@@ -1,5 +1,8 @@
 # MCP on Amazon Bedrock
 ### Update Log
+- [20250507] New Nova Premier and Nova Sonic Voice Agent mode, see Section 6 for details
+ - ⚠️ If deploying on EC2, you need to use [HTTPS deployment method](HTTPS_SETUP.md). If deploying locally, continue using the previous deployment method.
+
 - [20250419] Keep Server Session feature, which can save all session historical messages on the server side, including Tool use history
   - UI activation method: Control through the `Keep Session on Server` switch on the UI. When clicking `Clear Conversion`, it will send a `v1/remove/history` request to clear the server session messages.
   - If using the server interface directly, add keep_session=True in the ChatCompletionRequest to indicate server-side saving. Only system and the latest user message need to be passed in the messages, no need to include historical messages.
@@ -8,6 +11,7 @@
   - Note: if upgrading, you need to run `uv sync` to update dependencies
   - Add use_bedrock=0 in .env file
 - Demo Videos
+![alt text](assets/demo_videos.png)
 > ChatBot is the most common application form in the large model era, but it is limited by the large model's inability to obtain timely information and operate external systems, making ChatBot application scenarios relatively limited. Later, with the introduction of Function Calling/Tool Use functionality, large models were able to interact with external systems, but the drawback is that large model business logic and Tool development are tightly coupled, unable to leverage the efficiency of scale on the Tool side. Anthropic launched [MCP](https://www.anthropic.com/news/model-context-protocol) at the end of November 2024, breaking this situation and introducing the strength of the entire community to scale up on the Tool side. Currently, the open source community and various vendors have developed rich [MCP servers](https://github.com/modelcontextprotocol/servers), making the Tool side flourish. End users can plug and play to integrate them into their ChatBots, greatly extending the capabilities of ChatBot UI, with a trend of ChatBot unifying various system UIs.
 - How MCP works
 ![alt text](assets/mcp_how.png)
@@ -15,9 +19,15 @@
 ![alt text](assets/image-aws-arch.png)
 - This project provides ChatBot interaction services based on Nova, Claude, and other large models in **Bedrock**, while introducing **MCP** to greatly enhance and extend the application scenarios of ChatBot-form products, supporting seamless integration with local file systems, databases, development tools, internet searches, etc. If a ChatBot containing a large model is equivalent to a brain, then introducing MCP is like equipping it with arms and legs, truly making the large model move and connect with various existing systems and data.
 - **This Demo Solution Architecture**
-![arch](assets/arch.png)
+![arch](assets/arch.png)  
+
+- **Deepwiki** 
+
+https://deepwiki.com/aws-samples/demo_mcp_on_amazon_bedrock/1.1-system-architecture
+
 - **Core Components**
-![alt text](assets/core_comp.png)
+
+![alt text](assets/core_comp.png)  
    1. MCP Client (mcp_client.py)
       - Responsible for managing connections to multiple MCP servers
       - Handles tool calls and resource access
@@ -45,7 +55,7 @@
       - Support for dynamically adding and removing MCP servers
       - Global and user-specific MCP server configurations
 - **Workflow**
-![alt text](assets/image_process1.png)
+![alt text](assets/image_process1.png)  
    1. User sends a query through the Web interface
    2. Backend service receives the query and forwards it to the Bedrock model
    3. If the model needs to use tools, the MCP client calls the corresponding MCP server
@@ -72,6 +82,14 @@ First, install the Python package management tool uv, please refer to the [uv](h
 ### 2.3 Environment Configuration
 After downloading and cloning the project, enter the project directory to create a Python virtual environment and install dependencies:
 ```bash
+sudo apt update
+sudo apt-get install portaudio19-dev
+uv sync
+```
+
+If using a Mac environment:  
+```bash
+brew install portaudio
 uv sync
 ```
 At this point, the virtual environment is created in the `.venv` directory of the project, activate it:
@@ -88,10 +106,10 @@ aws dynamodb create-table \
 ```
 ### 2.4 Configuration Editing (Using Bedrock in Regions Outside China)
 > Tips: If you need to configure multiple account ak/sk using a rotation mechanism, you can add a `credential.csv` in the conf/ directory with column names **ak** and **sk**, and fill in multiple ak/sk pairs, for example:
-| ak | sk |
-| ----- | ----- |
-| ak 1 | sk 1 |
-| ak 2 | sk 2 |
+ak,sk  
+ak1,sk1  
+ak2,sk2  
+
 Run the following command to create an .env file, **please modify AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION and other information before running**
 ```bash
 cat << EOF > .env
@@ -104,8 +122,10 @@ MCP_SERVICE_HOST=127.0.0.1
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
+INACTIVE_TIME=10
 #If not using dynamodb, delete the line below
 ddb_table=mcp_user_config_table
+USE_HTTPS=0
 EOF
 ```
 Note: This project uses **AWS Bedrock Nova/Claude** series models, so you need to register and obtain access keys for the above services.
@@ -122,24 +142,42 @@ MCP_SERVICE_HOST=127.0.0.1
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
+INACTIVE_TIME=10
 #Flag for not using bedrock
 use_bedrock=0
 #If not using dynamodb, delete the line below
 ddb_table=mcp_user_config_table
+USE_HTTPS=0
 EOF
 ```
-Default configuration supports `DeepSeek-V3`. If you need to support other models (must be models that support tool use), please modify the [conf/config.json](conf/config.json) configuration to add models, for example:
+Default configuration supports `DeepSeek-V3` and `Qwen3`. If you need to support other models (must be models that support tool use), please modify the [conf/config.json](conf/config.json) configuration to add models, for example:
 ```json
-		{
-			"model_id": "Pro/deepseek-ai/DeepSeek-V3",
-			"model_name": "DeepSeek-V3-Pro"
-    }
+  {
+    "model_id": "Qwen/Qwen3-235B-A22B",
+    "model_name": "Qwen3-235B-A22B"
+  },
+  {
+    "model_id": "Qwen/Qwen3-30B-A3B",
+    "model_name": "Qwen3-30B-A3B"
+  },
+  {
+    "model_id": "Pro/deepseek-ai/DeepSeek-V3",
+    "model_name": "DeepSeek-V3-Pro"
+  },
+  {
+    "model_id": "deepseek-ai/DeepSeek-V3",
+    "model_name": "DeepSeek-V3-free"
+  }
 ```
 ## 3. Running
 ### 3.1 This project includes 1 backend service and a streamlit frontend, with front and back ends connected via REST API:
 - **Chat interface service (Bedrock+MCP)**, which can provide Chat interfaces externally, host multiple MCP servers simultaneously, support multi-turn dialogue input history, and append tool call intermediate results to response content. Streaming responses are not supported yet.
 - **ChatBot UI**, communicates with the above Chat interface service, providing multi-turn dialogue and MCP management Web UI demo service
-### 3.2 Chat Interface Service (Bedrock+MCP)
+
+### 3.2. (Optional) HTTPS Setup
+Refer to [HTTPS_SETUP](./HTTPS_SETUP.md)
+
+### 3.3. Chat Interface Service (Bedrock+MCP)
 - The interface service can provide independent APIs externally to connect with other chat clients, achieving decoupling of server-side MCP capabilities and clients
 - You can view the API documentation through http://{ip}:7002/docs#/
 ![alt text](./assets/image_api.png)
@@ -184,7 +222,7 @@ curl http://127.0.0.1:7002/v1/chat/completions \
   }'
 ```
 - If keep_session:true means keeping the session on the server side, the server will preserve historical messages and tool calls, and the client only needs to send the latest user message
-### 3.3 ChatBot UI 
+### 3.4. ChatBot UI 
 * The previous streamlit UI has been deprecated
 Now using the new React UI
 - 🚀 Modern frontend built on Next.js 15 and React 18, supporting Dark/Light mode
@@ -209,7 +247,7 @@ save those rows record into a file, filename is rows.txt
 list all of files in the allowed directory
 read the content of rows.txt file
 ```
-### 3.4. Adding MCP Server
+### 3.5. Adding MCP Server
 Currently, there are two ways to add an MCP Server:
 1. Preset in `conf/config.json`, which will load the configured MCP Servers every time the Chat interface service restarts
 2. Add MCP Servers through the ChatBot UI by submitting a form with MCP Server parameters. This is only effective for the current session and will be lost after service restart
@@ -342,7 +380,8 @@ you have capability:
 ![alt text](assets/image_deepresearch_2.png)
 - **Sequence Diagram: Using Search API MCP Server**
 ![alt text](assets/image-seq1.png)
-###  5.3. Using Amazon Knowledge Base
+
+###  5.4. Using Amazon Knowledge Base
 First create or use an existing Bedrock Knowledge Base in the Bedrock console, and note down the Knowledge Base Id
 Clone [AWS Knowledge Base Retrieval MCP Server](https://github.com/modelcontextprotocol/servers) locally, and replace the file in `src/aws-kb-retrieval-server/index.ts` with the file from [assets/aws-kb-retrieval-server/index.ts)](assets/aws-kb-retrieval-server/index.ts).
 > The new file specifies the knowledgeBaseId through an environment variable, so it no longer needs to be passed through dialogue.
@@ -368,7 +407,15 @@ Then add this json file on the chatbot interface, note that the fields in env ne
 }
 ```
 
-## 6. Awesome MCPs
+## 6. Voice Agent + MCP
+- ⚠️ If deploying on EC2, you need to use [HTTPS deployment method](HTTPS_SETUP.md). If deploying locally, continue using the previous deployment method.
+- Click on the microphone icon to experience end-to-end voice Agent mode. In this mode, the [Nova Sonic Speech 2 Speech model](https://docs.aws.amazon.com/nova/latest/userguide/speech.html) is used, which currently only supports English conversations and three voice output tones.
+Nova Sonic model supports Function call, so it can also add MCP servers. For example, after enabling tavily search and time mcp server, ask in voice "what is the weather of beijing". You can see that the Nova Sonic model will listen to the microphone and directly respond with voice output, while simultaneously converting the voice input and output into text displayed in the chat box.
+![alt text](assets/sonic_1.png)
+- Voice Integration flow  
+![alt text](assets/voice_flow.png)
+
+## 7. Awesome MCPs
 - AWS MCP Servers Samples https://github.com/aws-samples/aws-mcp-servers-samples
 - AWS Labs MCP Servers https://awslabs.github.io/mcp
 - https://github.com/punkpeye/awesome-mcp-servers

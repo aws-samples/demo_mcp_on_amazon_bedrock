@@ -13,12 +13,24 @@
 			"model_name": "Claude 3.5 Haiku v1"
 		},
 		{
+			"model_id": "us.amazon.nova-premier-v1:0",
+			"model_name": "Amazon Nova Premier v1"
+		},
+		{
 			"model_id": "us.amazon.nova-pro-v1:0",
 			"model_name": "Amazon Nova Pro v1"
 		},
 		{
 			"model_id": "us.amazon.nova-lite-v1:0",
 			"model_name": "Amazon Nova Lite v1"
+		},
+		{
+			"model_id": "Qwen/Qwen3-235B-A22B",
+			"model_name": "Qwen3-235B-A22B"
+		},
+		{
+			"model_id": "Qwen/Qwen3-30B-A3B",
+			"model_name": "Qwen3-30B-A3B"
 		},
 		{
 			"model_id": "Pro/deepseek-ai/DeepSeek-V3",

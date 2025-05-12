@@ -6,17 +6,23 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.11.16",
+    "aws-sdk-bedrock-runtime>=0.0.2",
     "boto3>=1.37.29",
     "botocore>=1.37.29",
     "fastapi>=0.115.6",
     "mcp>=1.6.0",
     "openai>=1.75.0",
     "pandas>=2.2.3",
+    "pyaudio>=0.2.14",
     "python-dotenv>=1.0.1",
+    "pytz>=2024.2",
     "requests>=2.32.3",
+    "rx>=3.2.0",
+    "smithy-aws-core>=0.0.1",
     "streamlit>=1.41.1",
     "streamlit-cookies-controller>=0.0.4",
     "streamlit-local-storage>=0.0.25",
     "tzdata>=2024.2",
     "uvicorn>=0.34.0",
+    "websockets>=15.0.1",
 ]

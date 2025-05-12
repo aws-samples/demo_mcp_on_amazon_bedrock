@@ -206,7 +206,7 @@ class MCPClient:
             if "Attempted to exit cancel scope in a different task" in str(e):
                 # Create a new exit stack for future use
                 self.exit_stack = AsyncExitStack()
-                logger.warning(f"Handled cross-task exit_stack closure for {self.name}")
+                # logger.warning(f"Handled cross-task exit_stack closure for {self.name}")
             else:
                 # Re-raise if it's a different error
                 raise

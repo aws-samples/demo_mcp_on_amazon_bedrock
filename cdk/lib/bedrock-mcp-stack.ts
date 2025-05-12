@@ -194,23 +194,33 @@ export class BedrockMcpStack extends cdk.Stack {
       'systemctl start mcp-services'
     );
 
-    // Create Auto Scaling Group
-    const asg = new autoscaling.AutoScalingGroup(this, `${prefix}-ASG`, {
-      vpc,
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MEDIUM),
+    // Create Launch Template
+    const launchTemplate = new ec2.LaunchTemplate(this, `${prefix}-LaunchTemplate`, {
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.C5, ec2.InstanceSize.XLARGE),
       machineImage: ec2.MachineImage.fromSsmParameter(
         '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id',
         { os: ec2.OperatingSystemType.LINUX }
       ),
-      blockDevices: [
-        {
-          deviceName: '/dev/sda1',  // Root volume
-          volume: autoscaling.BlockDeviceVolume.ebs(100), // 100 GB
-        }
-      ],
       userData,
       role,
       securityGroup: sg,
+      blockDevices: [
+        {
+          deviceName: '/dev/sda1',
+          volume: {
+            ebsDevice: {
+              volumeSize: 100,
+              volumeType: ec2.EbsDeviceVolumeType.GP2,
+            }
+          }
+        }
+      ],
+    });
+    
+    // Create Auto Scaling Group with Launch Template
+    const asg = new autoscaling.AutoScalingGroup(this, `${prefix}-ASG`, {
+      vpc,
+      launchTemplate,
       minCapacity: 1,
       maxCapacity: 1,
       vpcSubnets: {
