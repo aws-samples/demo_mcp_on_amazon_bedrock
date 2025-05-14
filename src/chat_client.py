@@ -39,6 +39,8 @@ class ChatClient:
         # self.max_history = int(os.environ.get('MAX_HISTORY_TURN',5))*2
         self.messages = [] # History messages without system message
         self.system = None
+        self.cache_checkpoint = 0
+        self.reset_checkpoint = 0
         
         if credential_file:
             credentials = pd.read_csv(credential_file)
@@ -92,6 +94,8 @@ class ChatClient:
         """clear session message of this client"""
         self.messages = []
         self.system = None
+        self.cache_checkpoint = 0
+        self.reset_checkpoint = 0
         
     async def process_query(self, 
             model_id="amazon.nova-lite-v1:0", max_tokens=1024, temperature=0.1,max_turns=30,

@@ -4,18 +4,21 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useStore } from '@/lib/store';
+import { useStore, McpServer } from '@/lib/store';
 import { v4 as uuidv4 } from 'uuid';
-import { ToolInputPanel } from './ToolInputPanel';
+// import { ToolInputPanel } from './ToolInputPanel';
 import { ToolUsagePanel } from './ToolUsagePanel';
+import { fetchMcpServers } from '@/lib/api';
 
 export default function ChatInterface() {
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(30); // Default width 30%
   const [isResizing, setIsResizing] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isLoadingMcpServers, setIsLoadingMcpServers] = useState(true);
   const resizeRef = useRef<HTMLDivElement>(null);
-  const { userId, setUserId } = useStore();
+  const loadedRef = useRef<boolean>(false);
+  const { userId, setUserId, mcpServers, setMcpServers } = useStore();
   
   // Store sidebar width in localStorage
   useEffect(() => {
@@ -103,6 +106,53 @@ export default function ChatInterface() {
     }
   }, [userId, setUserId]);
   
+  // Fetch MCP servers when component mounts - only run once
+  useEffect(() => {
+    // Only load servers once
+    if (loadedRef.current) return;
+    
+    const loadMcpServers = async () => {
+      setIsLoadingMcpServers(true);
+      try {
+        const servers = await fetchMcpServers();
+        
+        // Process servers
+        let updatedServers;
+        if (mcpServers.length > 0) {
+          // Preserve enabled state from existing servers
+          updatedServers = servers.map(newServer => {
+            const existingServer = mcpServers.find(
+              existing => existing.serverId === newServer.serverId
+            );
+            
+            if (existingServer) {
+              return {
+                ...newServer,
+                enabled: existingServer.enabled
+              };
+            }
+            
+            return newServer;
+          });
+        } else {
+          updatedServers = servers;
+        }
+        
+        // Update the store
+        setMcpServers(updatedServers);
+        
+        // Mark as loaded
+        loadedRef.current = true;
+      } catch (error) {
+        console.error('Failed to load MCP servers:', error);
+      } finally {
+        setIsLoadingMcpServers(false);
+      }
+    };
+    
+    loadMcpServers();
+  }, []); // Empty dependency array to run only once
+  
   return (
     <div className="flex flex-col h-full">
       {/* Header with sidebar toggle button */}
@@ -141,10 +191,10 @@ export default function ChatInterface() {
           style={{ width: `${isSidebarCollapsed ? 100 : (100 - sidebarWidth)}%` }}
         >
           {/* Message list */}
-          <MessageList />
+          <MessageList isLoading={isLoadingMcpServers} />
           
           {/* Chat input */}
-          <ChatInput />
+          <ChatInput disabled={isLoadingMcpServers} />
           
         </div>
         

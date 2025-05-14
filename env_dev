@@ -11,3 +11,4 @@ API_KEY=123456
 MAX_TURNS=200
 ddb_table=mcp_user_config_table
 use_bedrock=1
+USE_HTTPS=0

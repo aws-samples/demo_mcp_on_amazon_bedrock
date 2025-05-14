@@ -1,8 +1,13 @@
 import { NextApiRequest, NextApiResponse } from 'next';
+import fetch from 'node-fetch';
 
 // Base URL for the MCP server backend (internal only)
 // Using localhost works with both direct deployment and Docker with host network mode
 const MCP_BASE_URL = process.env.SERVER_MCP_BASE_URL || 'http://localhost:7002';
+
+// Configure fetch to ignore SSL errors for self-signed certificates
+// This is safe because we're making the request from the server side
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 // Get standardized headers for backend requests
 export const getBackendHeaders = (req: NextApiRequest) => {
@@ -31,12 +36,12 @@ export async function proxyGetRequest(
   endpoint: string
 ) {
   try {
-    // Construct backend URL
-    const url = `${MCP_BASE_URL}${endpoint}`;
+    // Construct backend URL - use the protocol specified in MCP_BASE_URL
+    const url = MCP_BASE_URL + endpoint;
     
     // Make the request to the backend
     const response = await fetch(url, {
-      headers: getBackendHeaders(req),
+      headers: getBackendHeaders(req)
     });
 
     // Get response data
@@ -60,14 +65,14 @@ export async function proxyPostRequest(
   endpoint: string
 ) {
   try {
-    // Construct backend URL
-    const url = `${MCP_BASE_URL}${endpoint}`;
+    // Construct backend URL - use the protocol specified in MCP_BASE_URL
+    const url = MCP_BASE_URL + endpoint;
     
     // Make the request to the backend
     const response = await fetch(url, {
       method: 'POST',
       headers: getBackendHeaders(req),
-      body: JSON.stringify(req.body),
+      body: JSON.stringify(req.body)
     });
 
     // Get content type to determine how to handle response
@@ -97,37 +102,38 @@ export async function proxyPostRequest(
         throw new Error('Response body is null');
       }
 
-      // Use streams properly with Web API
-      const reader = stream.getReader();
+      // Use streams properly with node-fetch
+      const reader = stream as any;
       let decoder = new TextDecoder();
       
       // Handle client disconnect
       req.on('close', () => {
-        // When client disconnects, cancel the reader to clean up resources
-        reader.cancel().catch(err => {
-          console.error('Error cancelling reader:', err);
-        });
+        // When client disconnects, clean up resources
+        if (reader && typeof reader.destroy === 'function') {
+          reader.destroy();
+        }
       });
       
       // Process the stream
       async function processStream() {
         try {
-          while (true) {
-            const { done, value } = await reader.read();
-            
-            if (done) {
-              // End the response when the stream is done
-              res.end();
-              break;
-            }
-            
-            if (value) {
-              // Decode the chunk and write it directly to the response
-              // This ensures we preserve the exact SSE format
-              const chunk = decoder.decode(value, { stream: true });
-              res.write(chunk);
-            }
-          }
+          // For node-fetch, we need to handle the stream differently
+          reader.on('data', (chunk: Buffer) => {
+            // Decode the chunk and write it directly to the response
+            // This ensures we preserve the exact SSE format
+            const decodedChunk = decoder.decode(chunk, { stream: true });
+            res.write(decodedChunk);
+          });
+          
+          reader.on('end', () => {
+            // End the response when the stream is done
+            res.end();
+          });
+          
+          reader.on('error', (error: Error) => {
+            console.error('Stream error:', error);
+            res.end();
+          });
         } catch (error) {
           console.error('Error processing stream:', error);
           res.end();
@@ -159,13 +165,13 @@ export async function proxyDeleteRequest(
   endpoint: string
 ) {
   try {
-    // Construct backend URL
-    const url = `${MCP_BASE_URL}${endpoint}`;
+    // Construct backend URL - use the protocol specified in MCP_BASE_URL
+    const url = MCP_BASE_URL + endpoint;
     
     // Make the request to the backend
     const response = await fetch(url, {
       method: 'DELETE',
-      headers: getBackendHeaders(req),
+      headers: getBackendHeaders(req)
     });
 
     // Get response data

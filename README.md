@@ -1,11 +1,14 @@
 # MCP on Amazon Bedrock[[English Readme](./README.en.md)]
 ### 更新日志
+- [20250507] 新增Nova Premier和Nova Sonic 语音Agent模式，见第6节介绍
+ - ⚠️ 如果在ec2部署，需要使用[HTTPS方式部署](HTTPS_SETUP.md)，如果在本地则沿用之前的部署方式.
+
 - [20250419] Keep Server Session 功能，可以在服务器端保存session所有历史消息，包括（Tool use历史）
   - UI开启方法：UI上通过`Keep Session on Server`开关控制,点击`Clear Conversion`时，会向服务端发起`v1/remove/history`请求清空服务器session消息。
   - 如果直接使用服务端接口，在ChatCompletionRequest中加入keep_session=True,表示在服务端保存，messages中只需要传入system和最新的user 即可，无须再传入历史消息。
   - 如果要清空服务器端历史，需要发起`POST v1/remove/history`请求
   
-- [20250418] 新增中国区硅基流动deepseek v3模型支持，新增sse server支持
+- [20250418] 新增中国区硅基流动deepseek v3,Qwen3模型支持，新增sse server支持
   - 注意如果是升级安装，需要运行`uv sync`更新依赖环境
   - .env中加入use_bedrock=0
 
@@ -17,15 +20,19 @@
 ![alt text](assets/mcp_how.png)  
 
 - 基于AWS的MCP企业架构设计思路  
-![alt text](assets/image-aws-arch.png)
+![alt text](assets/image-aws-arch.png) 
 
 - 本项目提供基于 **Bedrock** 中Nova,Claude等大模型的 ChatBot 交互服务，同时引入 **MCP**，极大增强并延伸 ChatBot 形态产品的应用场景，可支持本地文件系统、数据库、开发工具、互联网检索等无缝接入。如果说包含大模型的 ChatBot 相当于大脑的话，那引入 MCP 后就相当于装上了胳膊腿，真正让大模型动起来、跟各种现存系统和数据联通。  
 
 - **本Demo方案架构**
 ![arch](assets/arch.png)
 
+- **Deepwiki** 
+
+https://deepwiki.com/aws-samples/demo_mcp_on_amazon_bedrock/1.1-system-architecture
+
 - **核心组件**
-![alt text](assets/core_comp.png)  
+![alt text](assets/core_comp.png)   
    1. MCP客户端(mcp_client.py)
       - 负责管理与多个MCP服务器的连接
       - 处理工具调用和资源访问
@@ -38,8 +45,8 @@
       - 提供FastAPI服务,暴露聊天和MCP管理API
       - 管理用户会话和MCP服务器配置
       - 处理并发请求和资源清理
-   4. Web界面(chatbot.py)
-      - 基于Streamlit的用户界面
+   4. Frontend(React UI)
+      - 基于React的用户界面
       - 允许用户与模型交互并管理MCP服务器
       - 显示工具调用结果和思考过程
 
@@ -55,7 +62,7 @@
       - 全局和用户特定的MCP服务器配置
 
 - **工作流程**
-![alt text](assets/image_process1.png)
+![alt text](assets/image_process1.png)  
    1. 用户通过Web界面发送查询
    2. 后端服务接收查询并转发给Bedrock模型
    3. 如果模型需要使用工具,MCP客户端会调用相应的MCP服务器
@@ -65,7 +72,7 @@
 - 该项目目前仍在不断探索完善，MCP 正在整个社区蓬勃发展，欢迎大家一起关注！
 
 ## 1. 项目特点：
-   - 同时支持Amazon Nova Pro和Claude Sonnet模型
+   - 同时支持Amazon Nova 和Claude Sonnet模型, 以及其他OPENAI接口兼容的模型
    - 与Anthropic官方MCP标准完全兼容，可以采用同样的方式，直接使用社区的各种[MCP servers](https://github.com/modelcontextprotocol/servers/tree/main)
    - 将MCP能力和客户端的解耦，MCP能力封装在服务端，对外提供API服务，且chat接口兼容openai，方便接入其他chat客户端
    - 前后端分离，MCP Client和MCP Server均可以部署到服务器端，用户可以直接使用web浏览器通过后端web服务交互，从而访问LLM和MCP Sever能力和资源  
@@ -92,7 +99,15 @@ NodeJS [下载安装](https://nodejs.org/en)，本项目已对 `v22.12.0` 版本
 
 ### 2.3 环境配置
 下载克隆该项目后，进入项目目录创建 Python 虚拟环境并安装依赖：
-```bas
+```bash
+sudo apt update
+sudo apt-get install portaudio19-dev
+uv sync
+```
+
+如果是mac环境:  
+```bash
+brew install portaudio
 uv sync
 ```
 
@@ -111,11 +126,9 @@ aws dynamodb create-table \
 ```
 ### 2.4 配置编辑（海外区使用Bedrock）
 > Tips: 如何需要配置多个账号ak/sk, 使用轮询机制，可以在conf/目录下增加一个`credential.csv`, 列名分别为**ak**，**sk**， 填入多个ak/sk即可，例如: 
-  
-| ak | sk |  
-| ----- | ----- |  
-| ak 1 | sk 1 |  
-| ak 2 | sk 2 |  
+ak,sk  
+ak1,sk1  
+ak2,sk2  
 
 运行以下命令创建.env 文件， **请修改AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION等信息之后再运行**  
 
@@ -130,8 +143,10 @@ MCP_SERVICE_HOST=127.0.0.1
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
+INACTIVE_TIME=60
 #如果不使用dynamodb，则删除下面一行
 ddb_table=mcp_user_config_table
+USE_HTTPS=0
 EOF
 ```
 
@@ -152,27 +167,45 @@ MCP_SERVICE_HOST=127.0.0.1
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
+INACTIVE_TIME=10
 #不使用bedrock flag
 use_bedrock=0
 #如果不使用dynamodb，则删除下面一行
 ddb_table=mcp_user_config_table
+USE_HTTPS=0
 EOF
 ```
 
-默认配置支持`DeepSeek-V3`, 如果需要支持其他模型（必须是支持tool use的模型），请自行修改[conf/config.json](conf/config.json)配置加入模型，例如：
+默认配置支持`DeepSeek-V3`,`Qwen3`等模型, 如果需要支持其他模型（必须是支持tool use的模型），请自行修改[conf/config.json](conf/config.json)配置加入模型，例如：
 
 ```json
-		{
-			"model_id": "Pro/deepseek-ai/DeepSeek-V3",
-			"model_name": "DeepSeek-V3-Pro"
-    }
+  {
+    "model_id": "Qwen/Qwen3-235B-A22B",
+    "model_name": "Qwen3-235B-A22B"
+  },
+  {
+    "model_id": "Qwen/Qwen3-30B-A3B",
+    "model_name": "Qwen3-30B-A3B"
+  },
+  {
+    "model_id": "Pro/deepseek-ai/DeepSeek-V3",
+    "model_name": "DeepSeek-V3-Pro"
+  },
+  {
+    "model_id": "deepseek-ai/DeepSeek-V3",
+    "model_name": "DeepSeek-V3-free"
+  }
 ```
+
 
 ## 3. 运行
 
-### 3.1 该项目包含1个后端服务和一个streamlit 前端， 前后端通过rest api对接：
+### 3.1 该项目包含1个后端服务和一个React UI前端， 前后端通过rest api对接：
 - **Chat 接口服务（Bedrock+MCP）**，可对外提供 Chat 接口、同时托管多个 MCP server、支持历史多轮对话输入、响应内容附加了工具调用中间结果、暂不支持流式响应
-- **ChatBot UI**，跟上述 Chat 接口服务通信，提供多轮对话、管理 MCP 的 Web UI 演示服务
+- **Web UI**，跟上述 Chat 接口服务通信，提供多轮对话、管理 MCP 的 Web UI 演示服务
+
+### 3.2 (可选)HTTPS方式启动
+参考 [HTTPS_SETUP](./HTTPS_SETUP.md)
 
 ### 3.2 Chat 接口服务（Bedrock+MCP）
 - 接口服务可以对外提供给独立API，接入其他chat客户端, 实现服务端MCP能力和客户端的解耦
@@ -224,7 +257,7 @@ curl http://127.0.0.1:7002/v1/chat/completions \
 ```
 - 如果keep_session:true表示在服务器端保持session，服务器会保留历史消息和工具调用，客户端只需传入最新一轮的user message即可
 
-### 3.3 ChatBot UI 
+### 3.3 Web UI 
 * 之前的streamlit UI 已经deprecated
 现在启用新版React UI
 - 🚀 基于Next.js 15和React 18构建的现代化前端，支持Dark/Light模式
@@ -240,7 +273,7 @@ curl http://127.0.0.1:7002/v1/chat/completions \
 ![alt text](react_ui/image-1.png)
 
 
-#### ChatBot UI 
+#### ChatBot UI (Deprecated)
 待启动后，可查看日志 `logs/start_chatbot.log` 确认无报错，然后浏览器打开[服务地址](http://localhost:3000/chat)，即可体验 MCP 增强后的 Bedrock 大模型 ChatBot 能力。
 由于已内置了文件系统操作、SQLite 数据库等 MCP Server，可以尝试连续提问以下问题进行体验：
 
@@ -428,7 +461,15 @@ docker build -t mcp/aws-kb-retrieval:latest -f src/aws-kb-retrieval-server/Docke
 }
 ```
 
-## 6. Awsome MCPs
+## 6. 语音Agent + MCP
+- ⚠️ 如果在ec2部署，需要使用[HTTPS方式部署](HTTPS_SETUP.md)，如果在本地则沿用之前的部署方式.
+- 点击小话筒，可以体验端到端语音Agent模式，在该模式下，使用的是[Nova Sonic Speech 2 Speech模型](https://docs.aws.amazon.com/nova/latest/userguide/speech.html)，目前仅支持英文对话和三种音色输出。
+Nova Sonic模型支持Function call，所以也能添加MCP server，例如，开启tavily search 和 time mcp server之后，语音输出问“what is the weather of beijing”。可以看到Nova Sonic模型会监听话筒，并直接在输出语音回复，并同时把语音输入和输出转成文字显示到对话框中  
+![alt text](assets/sonic_1.png)
+- 实时语音流程  
+![alt text](assets/voice_flow.png)
+
+## 7. Awsome MCPs
 - AWS MCP Servers Samples https://github.com/aws-samples/aws-mcp-servers-samples
 - AWS Labs MCP Servers https://awslabs.github.io/mcp
 - https://github.com/punkpeye/awesome-mcp-servers
