@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/aws-samples-demo-mcp-on-amazon-bedrock-badge.png)](https://mseep.ai/app/aws-samples-demo-mcp-on-amazon-bedrock)
+
 # MCP on Amazon Bedrock[[English Readme](./README.en.md)]
 ### 更新日志
 - [20250419] Keep Server Session 功能，可以在服务器端保存session所有历史消息，包括（Tool use历史）
