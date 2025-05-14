@@ -142,7 +142,7 @@ MCP_SERVICE_HOST=127.0.0.1
 MCP_SERVICE_PORT=7002
 API_KEY=123456
 MAX_TURNS=200
-INACTIVE_TIME=10
+INACTIVE_TIME=60
 #Flag for not using bedrock
 use_bedrock=0
 #If not using dynamodb, delete the line below

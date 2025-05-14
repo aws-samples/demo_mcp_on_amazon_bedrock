@@ -80,6 +80,7 @@ class ChatClient:
         else:
             bedrock_client = boto3.client(
                 service_name='bedrock-runtime' if runtime else 'bedrock',
+                region_name=self.env['AWS_REGION'],
                 config=Config(
                     retries={
                         "max_attempts": 3,
