@@ -101,6 +101,7 @@ NodeJS [下载安装](https://nodejs.org/en)，本项目已对 `v22.12.0` 版本
 下载克隆该项目后，进入项目目录创建 Python 虚拟环境并安装依赖：
 ```bash
 sudo apt update
+sudo apt-get install clang
 sudo apt-get install portaudio19-dev
 uv sync
 ```

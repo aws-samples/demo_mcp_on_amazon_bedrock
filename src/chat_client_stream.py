@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from chat_client import ChatClient
 import base64
 from mcp_client import MCPClient
-from utils import maybe_filter_to_n_most_recent_images,remove_cache_checkpoint
+from utils import maybe_filter_to_n_most_recent_images,remove_cache_checkpoint,filter_tool_use_result
 from botocore.exceptions import ClientError
 import random
 import time
@@ -183,6 +183,11 @@ class ChatClientStream(ChatClient):
             additionalModelRequestFields = {}
             inferenceConfig={"maxTokens":max_tokens,"temperature":temperature,}
 
+        # 如新一轮对话里没有启用mcp server，则需要清除之前的tool use content，否则会报错
+        if len(messages) > 0 and not tool_config['tools']:
+            messages = filter_tool_use_result(messages)
+            logger.info(f"clear tool use result for new turn")
+            
         requestParams = dict(
                     modelId=model_id,
                     messages=messages,
@@ -191,6 +196,7 @@ class ChatClientStream(ChatClient):
                     additionalModelRequestFields = additionalModelRequestFields
         )
         requestParams = {**requestParams, 'toolConfig': tool_config} if tool_config['tools'] else requestParams
+            
         if prompt_cache and self.cache_checkpoint == 0:
             if 'toolConfig' in requestParams and prompt_cache_for_tool:
                 tools_str = json.dumps(requestParams['toolConfig']['tools'],ensure_ascii=False)
