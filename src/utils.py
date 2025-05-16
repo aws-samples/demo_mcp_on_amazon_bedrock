@@ -15,6 +15,8 @@ import hashlib
 import re
 import threading
 from dotenv import load_dotenv
+from urllib.parse import urlparse
+
 # Initialize logger
 
 logging.basicConfig(
@@ -360,3 +362,34 @@ def clean_filename(filename):
     
     # 返回清理后的文件名加扩展名
     return cleaned_name + ext
+
+def is_endpoint_sse(url):
+    """
+    判断URL的endpoint(路径的最后一部分)是否为'sse'
+    
+    Args:
+        url (str): 要检查的URL
+        
+    Returns:
+        bool: 如果URL的endpoint是'sse'，返回True；否则返回False
+    """
+    try:
+        # 解析URL
+        parsed_url = urlparse(url)
+        
+        # 获取路径部分，并去除末尾的斜杠
+        path = parsed_url.path.rstrip('/')
+        
+        # 如果path为空，返回False
+        if not path:
+            return False
+        
+        # 切分路径获取最后一个部分
+        path_parts = path.split('/')
+        
+        # 判断最后一个路径部分是否是"sse"
+        return path_parts[-1] == 'sse'
+        
+    except Exception as e:
+        print(f"解析URL时出错: {e}")
+        return False

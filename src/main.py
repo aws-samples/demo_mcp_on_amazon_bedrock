@@ -48,6 +48,8 @@ from mcp.shared.exceptions import McpError
 from fastapi import APIRouter
 from websocket_manager import connection_manager
 from nova_sonic_manager import WebSocketAudioProcessor
+from utils import is_endpoint_sse
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -162,9 +164,13 @@ async def initialize_user_servers(session: UserSession):
         try:
             # 创建并连接MCP服务器
             mcp_client = MCPClient(name=f"{session.user_id}_{server_id}")
+            server_url = config.get('url',"")
+            
             await mcp_client.connect_to_server(
                 command=config.get('command'),
-                server_url=config.get('url'),
+                server_url=server_url,
+                http_type= "sse" if is_endpoint_sse(server_url) else "streamable_http" ,
+                token=config.get('token', None),
                 server_script_args=config.get("args", []),
                 server_script_envs=config.get("env", {})
             )
@@ -421,7 +427,7 @@ async def remove_history(
         )
     else:
         session.chat_client.clear_history()
-        await session.cleanup()
+        # await session.cleanup()
         return JSONResponse(
             content={"errno": 0, "msg": "removed history"},
             # 添加特殊的响应头，使浏览器不缓存此响应
@@ -680,6 +686,8 @@ async def add_mcp_server(
         server_url = config_json[server_id].get("url","")
         server_script_args = config_json[server_id].get("args",[])
         server_script_envs = config_json[server_id].get('env',{})
+        http_type= "sse" if is_endpoint_sse(server_url) else "streamable_http"
+        token=config_json[server_id].get('token', None),
         
     # 连接MCP服务器
     tool_conf = {}
@@ -691,6 +699,8 @@ async def add_mcp_server(
         connect_task = mcp_client.connect_to_server(
             command=server_cmd,
             server_url=server_url,
+            http_type=http_type,
+            token=token,
             server_script_args=server_script_args,
             server_script_envs=server_script_envs
         )
