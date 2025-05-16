@@ -1,5 +1,19 @@
 # MCP on Amazon Bedrock
 ### Update Log
+- [20250516] Added streamable HTTP (simple token authentication)
+  - Currently only supports basic Bearer token authentication. Configuration example: add server with JSON configuration
+  ```json
+  {
+    "mcpServers": {
+      "MCPServerApi": {
+        "url": "https://xxx.execute-api.us-east-1.amazonaws.com/Prod/mcp",
+        "token":"123456"
+      }
+    }
+  }
+  ```  
+  You can develop and deploy a serverless HTTP stream server using AWS Lambda. Reference example: https://github.com/mikegc-aws/Lambda-MCP-Server
+
 - [20250507] New Nova Premier and Nova Sonic Voice Agent mode, see Section 6 for details
  - ⚠️ If deploying on EC2, you need to use [HTTPS deployment method](HTTPS_SETUP.md). If deploying locally, continue using the previous deployment method.
 

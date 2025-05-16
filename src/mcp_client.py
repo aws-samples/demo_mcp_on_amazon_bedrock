@@ -17,6 +17,8 @@ from mcp.types import Resource, Tool, TextContent, ImageContent, EmbeddedResourc
 from mcp.shared.exceptions import McpError
 from dotenv import load_dotenv
 from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
+
 
 load_dotenv()  # load environment variables from .env
 
@@ -83,7 +85,7 @@ class MCPClient:
     
     
     async def connect_to_server(self, server_script_path: str = "", server_script_args: list = [], 
-            server_script_envs: Dict = {}, command: str = "", server_url: str = ""):
+            server_script_envs: Dict = {}, command: str = "", http_type:str= 'streamable_http',server_url: str = "",token:str =""):
         """Connect to an MCP server"""
         # if not ((command and server_script_args) or server_script_path):
         #     raise ValueError("Run server via script or command.")
@@ -125,9 +127,14 @@ class MCPClient:
         env.update(server_script_envs)
         try: 
             if server_url:
-                transport = sse_client(server_url)
+                headers = { "Authorization": f"Bearer {token}"} if token else None
+                logger.info(f"http_type: %s" % http_type)
+                if http_type == 'streamable_http':
+                    transport_client = streamablehttp_client(server_url,headers=headers)
+                else:
+                    transport_client = sse_client(server_url,headers=headers)
             else:
-                transport = stdio_client(StdioServerParameters(
+                transport_client = stdio_client(StdioServerParameters(
                     command=command, args=server_script_args, env=env
                 ))
         except Exception as e:
@@ -135,7 +142,7 @@ class MCPClient:
             raise ValueError(f"Invalid server script or command. {e}")
         logger.info(f"\nAdding server %s %s" % (command, server_script_args))
         try:
-            _stdio, _write = await self.exit_stack.enter_async_context(transport)
+            _stdio, _write, *_= await self.exit_stack.enter_async_context(transport_client)
             self.session = await self.exit_stack.enter_async_context(ClientSession(_stdio, _write))
             await self.session.initialize()
             logger.info(f"\n{self.name} session initialize done")
