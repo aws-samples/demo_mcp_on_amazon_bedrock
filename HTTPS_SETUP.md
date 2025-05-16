@@ -18,22 +18,14 @@
 
 ### 2. 信任证书（可选但推荐）
 
-#### 在 macOS 上：
+#### 如果在 macOS 上部署本demo：
 1. 打开钥匙串访问
 2. 导入 `certificates/localhost.crt` 文件
 3. 找到导入的证书（搜索 "localhost"）
 4. 双击它并展开 "信任" 部分
 5. 将 "使用此证书时" 设置为 "始终信任"
 
-#### 在 Windows 上：
-1. 右键点击 `certificates/localhost.crt`
-2. 选择 "安装证书"
-3. 选择 "本地计算机" 并点击 "下一步"
-4. 选择 "将所有证书放入以下存储"
-5. 点击 "浏览" 并选择 "受信任的根证书颁发机构"
-6. 点击 "下一步" 然后 "完成"
-
-#### 在 Linux 上：
+#### 在 EC2 Linux 上部署的本demo：
 过程因发行版而异，但通常：
 ```bash
 sudo cp certificates/localhost.crt /usr/local/share/ca-certificates/
@@ -53,16 +45,16 @@ sudo update-ca-certificates
 #### 方法 1：使用环境变量
 
 编辑 `.env` 文件并设置：
-```
-USE_HTTPS=1
-```
+- 修改`MCP_SERVICE_HOST=0.0.0.0`
+- 并新增`USE_HTTPS=1`
+
 
 然后运行：
 ```bash
 ./start_all.sh
 ```
 
-#### 自定义证书路径
+#### 自定义证书路径（可选）
 
 如果您有自己的证书，可以指定路径：
 ```bash
@@ -99,7 +91,7 @@ NEXT_PUBLIC_API_BASE_URL=https://<ec2_ip>:7002
 ### 6. 启动访问UI
 在`react_ui`目录中运行：
 ```
-docker-compose up mcpui-https -d
+docker-compose up mcpui-https -d --build
 ```
 
 打开浏览器并导航至：

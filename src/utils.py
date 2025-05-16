@@ -259,6 +259,22 @@ def get_global_server_configs() -> dict:
     """获取全局所有MCP服务器配置"""
     return global_mcp_server_configs
 
+def filter_tool_use_result(
+    messages: list,
+):
+    """
+    remove all toolUse, toolResult, and reasoningContent blocks 
+    """
+    for message in messages:
+        if "content" in message and isinstance(message["content"], list):
+            message["content"] = [item for item in message["content"] 
+                                 if "toolResult" not in item 
+                                 and "toolUse" not in item
+                                 and "reasoningContent" not in item]
+            
+    filtered_messages = [message for message in messages if message['content'] != []]
+    return filtered_messages
+    
 def maybe_filter_to_n_most_recent_images(
     messages: list,
     images_to_keep: int,
