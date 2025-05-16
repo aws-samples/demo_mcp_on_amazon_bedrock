@@ -687,7 +687,7 @@ async def add_mcp_server(
         server_script_args = config_json[server_id].get("args",[])
         server_script_envs = config_json[server_id].get('env',{})
         http_type= "sse" if is_endpoint_sse(server_url) else "streamable_http"
-        token=config_json[server_id].get('token', None),
+        token=config_json[server_id].get('token', None)
         
     # 连接MCP服务器
     tool_conf = {}

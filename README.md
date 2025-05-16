@@ -7,7 +7,7 @@
     "mcpServers": {
       "MCPServerApi": {
         "url": "https://xxx.execute-api.us-east-1.amazonaws.com/Prod/mcp",
-        "token":"123456",
+        "token":"123456"
       }
     }
   }
