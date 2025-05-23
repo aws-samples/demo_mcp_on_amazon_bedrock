@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/aws-samples-demo-mcp-on-amazon-bedrock-badge.png)](https://mseep.ai/app/aws-samples-demo-mcp-on-amazon-bedrock)
+
 # MCP on Amazon Bedrock[[English Readme](./README.en.md)]
 ### 更新日志
 - [20250516] 增加streamable http（简单token方式鉴权）
