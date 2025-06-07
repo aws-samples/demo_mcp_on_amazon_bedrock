@@ -156,7 +156,7 @@ export default function ChatInterface() {
   return (
     <div className="flex flex-col h-full">
       {/* Header with sidebar toggle button */}
-      <div className="h-12 border-b border-gray-200 dark:border-gray-700 flex items-center px-4">
+      <div className="h-12 border-b border-gray-200 dark:border-gray-700 flex items-center px-4 justify-end">
         <button
           onClick={toggleSidebar}
           className="flex items-center gap-2 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 px-3 py-1 rounded-md transition-colors"

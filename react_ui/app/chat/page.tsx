@@ -47,7 +47,7 @@ export default function Home() {
                 </svg>
               </button>
             )}
-            <h1 className="text-lg font-semibold">MCP on Amazon Bedrock</h1>
+            <h1 className="text-lg font-semibold">Strands Agent with MCP</h1>
           </div>
           <div className="flex items-center gap-2">
             <ModeToggle />

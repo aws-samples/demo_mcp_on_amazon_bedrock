@@ -14,18 +14,12 @@ import argparse
 import logging
 import asyncio
 import base64
-import mimetypes
-import hashlib
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Literal, AsyncGenerator, Union
 import uuid
-import threading
 from contextlib import asynccontextmanager
-from botocore.config import Config
-from botocore.exceptions import ClientError
 from dotenv import load_dotenv
-import boto3
-from fastapi import FastAPI, Request, HTTPException, Depends, BackgroundTasks, Security, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Security
 from utils import  (get_global_server_configs,
                     hash_filename,
                     save_global_server_config,
@@ -35,21 +29,15 @@ from utils import  (get_global_server_configs,
                     session_lock,
                     save_user_server_config)
 from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.security.api_key import APIKeyHeader
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import Security
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 from fastapi.exceptions import RequestValidationError
-from mcp_client import MCPClient
-from chat_client_stream import ChatClientStream
-from compatible_chat_client_stream import CompatibleChatClientStream
-from mcp.shared.exceptions import McpError
+from mcp_client_strands import StrandsMCPClient
+from strands_agent_client_stream import StrandsAgentClientStream
 from fastapi import APIRouter
-from websocket_manager import connection_manager
-from nova_sonic_manager import WebSocketAudioProcessor
 from utils import is_endpoint_sse
-
+from data_types import *
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,13 +69,17 @@ security = HTTPBearer()
 class UserSession:
     def __init__(self, user_id):
         self.user_id = user_id
-        if os.environ.get('use_bedrock',"1") in [1,'1']:
-            if os.path.exists("conf/credentials.csv"):
-                self.chat_client = ChatClientStream(credential_file="conf/credentials.csv")
-            else:
-                self.chat_client = ChatClientStream()
+        self.client_type = "strands" # os.environ.get('CLIENT_TYPE', 'strands') 
+        client_type = self.client_type
+        
+        if client_type == 'strands':
+            self.chat_client = StrandsAgentClientStream(
+                model_provider=os.environ.get('STRANDS_MODEL_PROVIDER', 'bedrock'),
+                api_key=os.environ.get('STRANDS_API_KEY', os.environ.get('OPENAI_API_KEY')),
+                api_base=os.environ.get('STRANDS_API_BASE')
+            )
         else:
-            self.chat_client = CompatibleChatClientStream()
+            raise ValueError("Please go for MCP on Bedrock Version")
 
         self.mcp_clients = {}  # 用户特定的MCP客户端
         self.last_active = datetime.now()
@@ -107,35 +99,6 @@ class UserSession:
             await asyncio.gather(*cleanup_tasks)
             logger.info(f"用户 {self.user_id} 的 {len(cleanup_tasks)} 个MCP客户端已清理")
     
-    async def process_audio(self, audio_data: bytes):
-        """处理用户的音频数据"""
-        # 这里可以添加用户特定的音频处理逻辑
-        # 例如，可以将音频数据发送到Amazon Transcribe进行语音识别
-        # 或者将其存储起来以供后续处理
-        try:
-            # 示例：记录音频数据大小
-            logger.info(f"用户 {self.user_id} 处理音频数据: {len(audio_data)} 字节")
-            
-            # 实际项目中，这里应该调用语音识别API
-            # 例如：text = await call_transcribe_service(audio_data)
-            
-            # 模拟语音识别结果
-            # 在实际应用中，这里应该是真实的语音识别结果
-            recognized_text = "这是一个语音识别的示例结果"
-            
-            # 返回处理结果
-            return {
-                "status": "success",
-                "message": f"处理了 {len(audio_data)} 字节的音频数据",
-                "text": recognized_text
-            }
-        except Exception as e:
-            logger.error(f"用户 {self.user_id} 处理音频数据失败: {e}")
-            return {
-                "status": "error",
-                "message": f"处理音频数据失败: {str(e)}"
-            }
-
 
 
 async def get_api_key(auth: HTTPAuthorizationCredentials = Security(security)):
@@ -163,10 +126,14 @@ async def initialize_user_servers(session: UserSession):
             
         try:
             # 创建并连接MCP服务器
-            mcp_client = MCPClient(name=f"{session.user_id}_{server_id}")
+            if session.client_type == 'strands':
+                mcp_client = StrandsMCPClient(name=f"{session.user_id}_{server_id}")
+            else:
+                raise ValueError("only support client_type strands")
             server_url = config.get('url',"")
             
             await mcp_client.connect_to_server(
+                server_id=server_id,
                 command=config.get('command'),
                 server_url=server_url,
                 http_type= "sse" if is_endpoint_sse(server_url) else "streamable_http" ,
@@ -244,69 +211,6 @@ async def cleanup_inactive_sessions():
         if inactive_users:
             logger.info(f"已清理 {len(inactive_users)} 个不活跃用户会话")
 
-        
-class TextContent(BaseModel):
-    type: Literal["text"] = "text"
-    text: str
-
-class ImageUrl(BaseModel):
-    url: str
-    detail: Optional[str] = "auto"
-
-class ImageUrlContent(BaseModel):
-    type: Literal["image_url"] = "image_url"
-    image_url: ImageUrl
-
-class FileObject(BaseModel):
-    file_id: Optional[str] = None
-    file_data: Optional[str] = None
-    filename: Optional[str] = None
-
-class FileContent(BaseModel):
-    type: Literal["file"] = "file"
-    file: FileObject
-
-# Content can be either text, image_url, or file
-ContentPart = Union[TextContent, ImageUrlContent, FileContent]
-
-class Message(BaseModel):
-    role: str
-    content: Union[str, List[ContentPart]]
-
-class ChatCompletionRequest(BaseModel):
-    messages: List[Message]
-    model: str
-    max_tokens: int = 4000
-    temperature: float = 0.5
-    top_p: float = 0.9
-    top_k: int = 250
-    extra_params : Optional[dict] = {}
-    stream: Optional[bool] = None
-    tools: Optional[List[dict]] = []
-    options: Optional[dict] = {}
-    keep_session: Optional[bool] = False
-    mcp_server_ids: Optional[List[str]] = []
-
-class ChatResponse(BaseModel):
-    id: str
-    object: str = "chat.completion"
-    created: int
-    model: str
-    choices: List[Dict[str, Any]]
-    usage: Dict[str, int]
-
-class AddMCPServerRequest(BaseModel):
-    server_id: str = ''
-    server_desc: str = ''
-    command: Literal["npx", "uvx", "node", "python","docker","uv"] = Field(default='npx')
-    args: List[str] = []
-    env: Optional[Dict[str, str]] = Field(default_factory=dict) 
-    config_json: Dict[str,Any] = Field(default_factory=dict)
-    
-class AddMCPServerResponse(BaseModel):
-    errno: int
-    msg: str = "ok"
-    data: Dict[str, Any] = Field(default_factory=dict)
 
 
 @asynccontextmanager
@@ -336,13 +240,6 @@ async def shutdown_event():
         for user_id, session in user_sessions.items():
             cleanup_tasks.append(session.cleanup())
     
-    # 清理所有WebSocket连接
-    try:
-        await connection_manager.close_all(code=1012, reason="Server shutdown")
-        logger.info("已关闭所有WebSocket连接")
-    except Exception as e:
-        logger.error(f"关闭WebSocket连接时出错: {e}")
-    
     if cleanup_tasks:
         await asyncio.gather(*cleanup_tasks)
         logger.info(f"已清理所有 {len(cleanup_tasks)} 个用户会话")
@@ -362,7 +259,6 @@ app.add_middleware(
 # 配置单独的路由组，确保停止路由不受streaming路由的并发限制影响
 stop_router = APIRouter()
 list_router = APIRouter()
-websocket_router = APIRouter()
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
@@ -516,133 +412,6 @@ async def stop_stream(
 # 将stop_router包含在主应用中, 注意这个顺序必须在接口定义之后
 app.include_router(stop_router)
 
-
-@websocket_router.websocket("/user-audio")
-async def websocket_user_audio(websocket: WebSocket):
-    """WebSocket端点，用于处理已认证用户的音频数据并使用Nova Sonic进行实时语音转换"""
-    client_id = None
-    user_session = None
-    audio_processor = None
-    
-    try:
-        # 获取客户端ID和认证令牌
-        client_id = websocket.query_params.get("client_id", str(uuid.uuid4()))
-        auth_token = websocket.query_params.get("token")
-        voice_id = websocket.query_params.get("voice_id","matthew")
-        
-        # 检查voice id
-        if voice_id not in ["matthew","tiffany","amy"]:
-            raise ValueError(f"voice_id {voice_id} not supported ")
-        
-        mcp_server_ids = websocket.query_params.get("mcp_server_ids")
-        mcp_server_ids = mcp_server_ids.split(',') if mcp_server_ids else []
-        # 验证认证令牌
-        if auth_token != API_KEY:
-            await websocket.close(code=1008, reason="Unauthorized")
-            return
-        
-        # 获取区域和模型ID（可选参数）
-        region = websocket.query_params.get("region", "us-east-1")
-        model_id = websocket.query_params.get("model_id", "amazon.nova-sonic-v1:0")
-        logger.info(f'mcp_server_ids:{mcp_server_ids}')
-        # 获取或创建用户会话 (no longer accepting connection here - will be handled by connection_manager)
-        user_id = websocket.query_params.get("user_id", auth_token)
-        
-        # 获取用户会话
-        # 检查用户会话是否存在
-        if user_id in user_sessions:
-            user_session = user_sessions[user_id]
-            user_session.last_active = datetime.now()
-        else:
-            # 创建新会话
-            user_session = UserSession(user_id)
-            user_sessions[user_id] = user_session
-            logger.info(f"为WebSocket客户端 {client_id} 创建新用户会话: {user_id}")
-            
-            # 初始化用户的MCP服务器
-            await initialize_user_servers(user_session)
-        
-        # 注册连接到连接管理器
-        await connection_manager.connect(websocket, client_id)
-        
-        # 发送连接确认消息
-        await websocket.send_json({
-            "type": "connection_established",
-            "client_id": client_id,
-            "user_id": user_id,
-            "message": "WebSocket connected for Nova Sonic speech-to-speech processing"
-        })        
-        # 创建并初始化 Nova Sonic 音频处理器，传入WebSocket引用以启用全双工模式
-        logger.info(f"正在为用户 {user_id} 初始化 Nova Sonic 处理器 voice_id {voice_id}")
-        audio_processor = WebSocketAudioProcessor(user_id = user_id, 
-                                                  mcp_clients = user_session.mcp_clients,
-                                                  mcp_server_ids= mcp_server_ids, 
-                                                  model_id= model_id, 
-                                                  voice_id = voice_id,
-                                                  region= region, 
-                                                  websocket = websocket)
-        await audio_processor.initialize()
-        # logger.info(f"成功初始化 Nova Sonic 处理器（双工模式）")
-        
-        # 告知客户端准备好接收音频
-        await websocket.send_json({
-            "type": "ready",
-            "message": "Nova Sonic model is ready for bidirectional audio processing"
-        })
-        
-        # 持续接收音频数据 - 只处理输入，输出由专门任务处理（双工模式）
-        while True:
-            # 接收二进制音频数据
-            audio_data = await websocket.receive_bytes()
-            
-            # 使用Nova Sonic处理输入音频数据（双工模式下，输出由单独的任务处理）
-            result = await audio_processor.process_input_audio(audio_data)
-            
-            # 在双工模式下，文本和音频响应由单独的任务直接发送到WebSocket
-            # 这里只需处理错误情况
-            if "status" in result and result["status"] == "error":
-                logger.warning(f"处理音频时发生错误: {result.get('message', 'Unknown error')}")
-                await websocket.send_json({
-                    "type": "error",
-                    "message": result.get("message", "处理音频时发生错误")
-                })
-            
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket客户端 {client_id} 断开连接")
-    except Exception as e:
-        logger.error(f"WebSocket错误: {e}")
-        # import traceback
-        # logger.error(traceback.format_exc())
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "message": f"处理错误: {str(e)}"
-            })
-        except:
-            pass
-    finally:
-        # 确保连接被清理 - 先处理连接清理，再处理处理器关闭
-        # 这样可以确保客户端断开连接时，先通知客户端，再清理资源
-        if client_id:
-            try:
-                await connection_manager.disconnect(client_id)
-            except Exception as e:
-                logger.error(f"清理WebSocket连接时出错: {e}")
-        
-        # 关闭Nova Sonic处理器
-        if audio_processor:
-            try:
-                await audio_processor.close()
-                logger.info(f"已关闭用户 {user_id} 的 Nova Sonic 处理器")
-            except Exception as e:
-                logger.error(f"关闭Nova Sonic处理器时出错: {e}")
-                # import traceback
-                # logger.debug(f"错误详情: {traceback.format_exc()}")
-
-# 将WebSocket路由器包含在主应用中
-app.include_router(websocket_router, prefix="/ws")
-
-
 @app.post("/v1/add/mcp_server")
 async def add_mcp_server(
     request: Request,
@@ -693,10 +462,14 @@ async def add_mcp_server(
     tool_conf = {}
     try:
         # 创建客户端对象移到try块内
-        mcp_client = MCPClient(name=f"{session.user_id}_{server_id}")
+        if session.client_type == 'strands':
+            mcp_client = StrandsMCPClient(name=f"{session.user_id}_{server_id}")
+        else:
+            raise ValueError('only support strands')
         
         # 添加超时控制
         connect_task = mcp_client.connect_to_server(
+            server_id=server_id,
             command=server_cmd,
             server_url=server_url,
             http_type=http_type,
@@ -751,7 +524,7 @@ async def add_mcp_server(
     return JSONResponse(content=AddMCPServerResponse(
         errno=0,
         msg="The server already been added!",
-        data={"tools": tool_conf.get("tools", {}) if tool_conf else {}}
+        # data={"tools": tool_conf.get("tools", {}) if tool_conf else {}}
     ).model_dump())
 
 @app.delete("/v1/remove/mcp_server/{server_id}")
@@ -776,7 +549,7 @@ async def remove_mcp_server(
     try:
         # async with session.lock:
         # 清理资源
-        await session.mcp_clients[server_id].disconnect_to_server()
+        await session.mcp_clients[server_id].disconnect_from_server(server_id)
         # 移除服务器
         del session.mcp_clients[server_id]
 
@@ -924,6 +697,9 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
         thinking_text_index = 0
         tooluse_start = False
         
+        last_heartbeat = time.time()
+        heartbeat_interval = 20  # 秒
+    
         # 使用用户特定的chat_client和mcp_clients
         async for response in session.chat_client.process_query_stream(
                 model_id=data.model,
@@ -938,7 +714,7 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
                 keep_session=data.keep_session,
                 stream_id=stream_id,
                 ):
-            
+            # logger.info(f"{response}")
             event_data = {
                 "id": f"chat{time.time_ns()}",
                 "object": "chat.completion.chunk",
@@ -992,7 +768,7 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
                     tooluse_start = False
                     event_data["choices"][0]["delta"] = {"content": text}
                     
-            elif response["type"] == "message_stop":
+            elif response["type"] in [ "message_stop" ,"result_pairs"]:
                 event_data["choices"][0]["finish_reason"] = response["data"]["stopReason"]
                 if response["data"].get("tool_results"):
                     event_data["choices"][0]["message_extras"] = {
@@ -1007,7 +783,13 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
 
             # 发送事件
             yield f"data: {json.dumps(event_data)}\n\n"
-
+            
+            # 添加心跳检查
+            current_time = time.time()
+            if current_time - last_heartbeat > heartbeat_interval:
+                yield ": keeping alive\n\n"  # SSE 注释格式的心跳
+                last_heartbeat = current_time
+                
             # 手动停止流式响应
             if response["type"] == "stopped":
                 event_data = {
@@ -1030,7 +812,9 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
                 yield "data: [DONE]\n\n"
 
     except Exception as e:
-        logger.error(f"Stream error for user {session.user_id}: {e}")
+        logger.error(f"Stream error for user {session.user_id}: {e}",exc_info=True)
+        error_message = f"Stream processing error: {type(e).__name__} - {str(e)}"
+
         error_data = {
             "id": f"error{time.time_ns()}",
             "object": "chat.completion.chunk",
@@ -1038,7 +822,7 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
             "model": data.model,
             "choices": [{
                 "index": 0,
-                "delta": {"content": f"Error: {str(e)}"},
+                "delta": {"content": f"Error: {error_message}"},
                 "finish_reason": "error"
             }]
         }
@@ -1093,197 +877,9 @@ async def chat_completions(
             media_type="text/event-stream",
             headers={"X-Stream-ID": stream_id}  # 添加流ID到响应头，便于前端跟踪
         )
-
-    # 处理非流式请求
-    messages = []
-    for file_idx, msg in enumerate(data.messages):
-        message_content = []
-        
-        # Handle string content (backward compatibility)
-        if isinstance(msg.content, str):
-            message_content = [{"text": msg.content}]
-        # Handle structured content (OpenAI format)
-        else:
-            for content_item in msg.content:
-                # Text content
-                if content_item.type == "text":
-                    message_content.append({"text": content_item.text})
-                
-                # Image content
-                elif content_item.type == "image_url":
-                    image_url = content_item.image_url.url
-                    
-                    # Handle base64 encoded images
-                    if image_url.startswith("data:image/"):
-                        try:
-                            # Parse data URI format: data:image/png;base64,ABC123...
-                            parts = image_url.split(";base64,")
-                            if len(parts) == 2:
-                                img_format = parts[0].split("/")[1]
-                                base64_data = parts[1]
-                                img_bytes = base64.b64decode(base64_data)
-                                
-                                message_content.append({
-                                    "image": {
-                                        "format": img_format,
-                                        "source": {
-                                            "bytes": img_bytes
-                                        }
-                                    }
-                                })
-                        except Exception as e:
-                            logger.error(f"Error processing base64 image: {e}")
-                    else:
-                        logger.warning(f"External image URLs not supported yet: {image_url}")
-                
-                # File content
-                elif content_item.type == "file":
-                    file_obj = content_item.file
-                    
-                    # Handle base64 encoded file data
-                    if file_obj.file_data:
-                        try:
-                            file_data = base64.b64decode(file_obj.file_data)
-                            filename = file_obj.filename or "unnamed_file"
-                            filename = hash_filename(filename)
-                            # Determine file format from filename or mime type
-                            file_ext = os.path.splitext(filename)[1].lower().replace(".", "")
-                            if not file_ext:
-                                file_ext = "txt"  # Default to txt if no extension
-                                
-                            # Map to Bedrock document format
-                            doc_format_map = {
-                                "pdf": "pdf",
-                                "csv": "csv", 
-                                "doc": "doc",
-                                "docx": "docx",
-                                "xls": "xls", 
-                                "xlsx": "xlsx",
-                                "html": "html",
-                                "txt": "txt",
-                                "md": "md",
-                                "json": "txt",  # JSON treated as text
-                                "xml": "txt",   # XML treated as text
-                                "py": "txt",    # Python file treated as text
-                                "js": "txt",    # JS file treated as text
-                                "ts": "txt",    # TS file treated as text
-                            }
-                            
-                            doc_format = doc_format_map.get(file_ext, "txt")
-                            
-                            message_content.append({
-                                "document": {
-                                    "format": doc_format,
-                                    "name": f"file_{file_idx}",
-                                    "source": {
-                                        "bytes": file_data
-                                    }
-                                }
-                            })
-                        except Exception as e:
-                            logger.error(f"Error processing file data: {e}")
-                    
-                    # Handle file_id (not implemented in this version)
-                    elif file_obj.file_id:
-                        logger.warning(f"File ID references not implemented yet: {file_obj.file_id}")
-        
-        messages.append({
-            "role": msg.role,
-            "content": message_content
-        })
-
-    # bedrock's first turn cannot be assistant
-    if messages and messages[0]['role'] == 'assistant':
-        messages = messages[1:]
-
-    system = []
-    if messages and messages[0]['role'] == 'system':
-        system = messages[0]['content'] if messages[0]['content'] else []
-        messages = messages[1:]
-
-    try:
-        tool_use_info = {}
-        # async with session.lock:  # 确保当前用户的请求按顺序处理
-        async for response in session.chat_client.process_query(
-                model_id=data.model,
-                max_tokens=data.max_tokens,
-                temperature=data.temperature,
-                messages=messages,
-                system=system,
-                max_turns=MAX_TURNS,
-                mcp_clients=session.mcp_clients,
-                mcp_server_ids=data.mcp_server_ids,
-                extra_params=data.extra_params,
-                keep_session=data.keep_session,
-                ):
-            logger.info(f"response body for user {session.user_id}: {response}")
-            is_tool_use = any([bool(x.get('toolUse')) for x in response['content']])
-            is_tool_result = any([bool(x.get('toolResult')) for x in response['content']])
-            is_answer = any([bool(x.get('text')) for x in response['content']])
-
-            if is_tool_use:
-                for x in response['content']:
-                    if 'toolUse' not in x or not x['toolUse'].get('name'):
-                        continue
-                    tool_id = x['toolUse'].get('toolUseId')
-                    if not tool_id:
-                        continue
-                    if tool_id not in tool_use_info:
-                        tool_use_info[tool_id] = {}
-                    tool_use_info[tool_id]['name'] = x['toolUse']['name']
-                    tool_use_info[tool_id]['arguments'] = x['toolUse']['input']
-
-            if is_tool_result:
-                for x in response['content']:
-                    if 'toolResult' not in x:
-                        continue
-                    tool_id = x['toolResult'].get('toolUseId')
-                    if not tool_id:
-                        continue
-                    if tool_id not in tool_use_info:
-                        tool_use_info[tool_id] = {}
-                    tool_use_info[tool_id]['result'] = x['toolResult']['content'][0]['text']
-
-            if is_tool_use or is_tool_result:
-                continue
-            
-            thinking_content = ""
-            text_content = ""
-            for content_block in response['content']:
-                if 'reasoningContent' in content_block:
-                    thinking_content = f"<thinking>{content_block['reasoningContent']['reasoningText']['text']}</thinking>"
-                if "text" in content_block:
-                    text_content = content_block['text']
-            
-            chat_response = ChatResponse(
-                id=f"chat{time.time_ns()}",
-                created=int(time.time()),
-                model=data.model,
-                choices=[
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": thinking_content+text_content,
-                        },
-                        "message_extras": {
-                            "tool_use": [info for too_id, info in tool_use_info.items()],
-                        },
-                        "logprobs": None,  
-                        "finish_reason": "stop", 
-                    }
-                ],
-                usage={
-                    "prompt_tokens": 0, 
-                    "completion_tokens": 0,
-                    "total_tokens": 0,
-                }
-            )
-            
-            return JSONResponse(content=chat_response.model_dump())
-    except Exception as e:
-        logger.error(f"Error processing request for user {session.user_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    else:
+        logger.error(f"Only support stream")
+        raise HTTPException(status_code=500, detail="Only support stream")
 
 
 def generate_self_signed_cert(cert_dir='certificates'):
@@ -1374,7 +970,8 @@ if __name__ == '__main__':
             "app": app,
             "host": args.host,
             "port": args.port,
-            "loop": loop
+            "loop": loop,
+            "timeout_keep_alive": 3600  # 设置为1小时或更长
         }
         
         # 如果启用HTTPS且有有效证书，添加SSL配置

@@ -1,5 +1,11 @@
 # MCP on Amazon Bedrock[[English Readme](./README.en.md)]
 ### 更新日志
+- [20250607] 全面使用Strands Agents SDK
+  - 使用Strands Agents SDK，简化代码，可以同时支持Bedrock，OpenAI(兼容) 模型，如DeepSeek R1等
+  - 请切换到strands分支
+  ```bash
+  git clone -b strands https://github.com/aws-samples/demo_mcp_on_amazon_bedrock.git
+  ```
 - [20250527] 增加DeepSeek-R1支持（使用PE实现function call）
   - 针对中国区使用硅基流动api，或者其他openai兼容api，可以支持deepseek r1，通过PE方式实现了function call
 
@@ -117,15 +123,6 @@ NodeJS [下载安装](https://nodejs.org/en)，本项目已对 `v22.12.0` 版本
 ### 2.3 环境配置
 下载克隆该项目后，进入项目目录创建 Python 虚拟环境并安装依赖：
 ```bash
-sudo apt update
-sudo apt-get install clang
-sudo apt-get install portaudio19-dev
-uv sync
-```
-
-如果是mac环境:  
-```bash
-brew install portaudio
 uv sync
 ```
 
@@ -142,57 +139,12 @@ aws dynamodb create-table \
     --key-schema AttributeName=userId,KeyType=HASH \
     --billing-mode PAY_PER_REQUEST 
 ```
-### 2.4 配置编辑（海外区使用Bedrock）
-> Tips: 如何需要配置多个账号ak/sk, 使用轮询机制，可以在conf/目录下增加一个`credential.csv`, 列名分别为**ak**，**sk**， 填入多个ak/sk即可，例如: 
-ak,sk  
-ak1,sk1  
-ak2,sk2  
-
-运行以下命令创建.env 文件， **请修改AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION等信息之后再运行**  
-
+### 2.4 配置编辑
+复制env.strands.example 到.env,并修改里面的model provider配置
 ```bash
-cat << EOF > .env
-AWS_ACCESS_KEY_ID=(可选，如果有credential.csv则不需要)
-AWS_SECRET_ACCESS_KEY=(可选)<your-secret-key>
-AWS_REGION=<your-region>
-LOG_DIR=./logs
-CHATBOT_SERVICE_PORT=8502
-MCP_SERVICE_HOST=127.0.0.1
-MCP_SERVICE_PORT=7002
-API_KEY=123456
-MAX_TURNS=200
-INACTIVE_TIME=60
-#如果不使用dynamodb，则删除下面一行
-ddb_table=mcp_user_config_table
-USE_HTTPS=0
-EOF
+cp env.strands.example .env
 ```
-
-备注：该项目用到 **AWS Bedrock Nova/Claude** 系列模型，因此需要注册并获取以上服务访问密钥。
-
-### 2.5 配置编辑（中国区使用硅基流动API）
-> Tips: 中国区需要提前获取硅基流动API Key
-
-运行以下命令创建.env 文件， **注意：请修改COMPATIBLE_API_KEY,COMPATIBLE_API_BASE等信息之后再运行**
-
-```bash
-cat << EOF > .env
-COMPATIBLE_API_KEY=<硅基流动的apikey>
-COMPATIBLE_API_BASE=https://api.siliconflow.cn
-LOG_DIR=./logs
-CHATBOT_SERVICE_PORT=8502
-MCP_SERVICE_HOST=127.0.0.1
-MCP_SERVICE_PORT=7002
-API_KEY=123456
-MAX_TURNS=200
-INACTIVE_TIME=10
-#不使用bedrock flag
-use_bedrock=0
-#如果不使用dynamodb，则删除下面一行
-ddb_table=mcp_user_config_table
-USE_HTTPS=0
-EOF
-```
+如果使用bedrock， 则填入AK，SK,region信息，如果是其他openai兼容模型，例如deepseek等，则使用openai provider，并填入对应的api key和url  
 
 默认配置支持`DeepSeek-V3`,`Qwen3`等模型, 如果需要支持其他模型（必须是支持tool use的模型），请自行修改[conf/config.json](conf/config.json)配置加入模型，例如：
 
@@ -222,9 +174,6 @@ EOF
 - **Chat 接口服务（Bedrock+MCP）**，可对外提供 Chat 接口、同时托管多个 MCP server、支持历史多轮对话输入、响应内容附加了工具调用中间结果、暂不支持流式响应
 - **Web UI**，跟上述 Chat 接口服务通信，提供多轮对话、管理 MCP 的 Web UI 演示服务
 
-### 3.2 (可选)HTTPS方式启动
-参考 [HTTPS_SETUP](./HTTPS_SETUP.md)
-
 ### 3.2 Chat 接口服务（Bedrock+MCP）
 - 接口服务可以对外提供给独立API，接入其他chat客户端, 实现服务端MCP能力和客户端的解耦
 - 可以通过http://{ip}:7002/docs#/查看接口文档.
@@ -252,19 +201,20 @@ bash start_all.sh
 bash stop_all.sh
 ```
 
-- 待启动后，可查看日志 `logs/start_mcp.log` 确认无报错，然后可运行测试脚本检查 Chat 接口：
+- 待启动后，可查看日志 `logs/start_mcp.log` 确认无报错
+
+- curl 明亮参考
 ```bash
-# 脚本使用 Bedrock 的 Amazon Nova-lite 模型，也可更换其它
 # 默认使用123456作为API key, 请根据实际设置更改
 curl http://127.0.0.1:7002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 123456" \
   -H "X-User-ID: user123" \
   -d '{
-    "model": "us.amazon.nova-pro-v1:0",
+    "model": "",
     "mcp_server_ids":["local_fs"],
     "stream":true,
-    "keep_session":false,
+    "keep_session":true,
     "messages": [
       {
         "role": "user",
@@ -273,7 +223,6 @@ curl http://127.0.0.1:7002/v1/chat/completions \
     ]
   }'
 ```
-- 如果keep_session:true表示在服务器端保持session，服务器会保留历史消息和工具调用，客户端只需传入最新一轮的user message即可
 
 ### 3.3 Web UI 
 * 之前的streamlit UI 已经deprecated
@@ -290,19 +239,6 @@ curl http://127.0.0.1:7002/v1/chat/completions \
 ![alt text](react_ui/image.png)
 ![alt text](react_ui/image-1.png)
 
-
-#### ChatBot UI (Deprecated)
-待启动后，可查看日志 `logs/start_chatbot.log` 确认无报错，然后浏览器打开[服务地址](http://localhost:3000/chat)，即可体验 MCP 增强后的 Bedrock 大模型 ChatBot 能力。
-由于已内置了文件系统操作、SQLite 数据库等 MCP Server，可以尝试连续提问以下问题进行体验：
-
-```
-show all of tables in the db
-how many rows in that table
-show all of rows in that table
-save those rows record into a file, filename is rows.txt
-list all of files in the allowed directory
-read the content of rows.txt file
-```
 
 ### 3.4. 添加 MCP Server
 当前可以通过两种方式来添加 MCP Server：

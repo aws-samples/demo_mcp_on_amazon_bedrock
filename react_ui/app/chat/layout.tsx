@@ -7,8 +7,8 @@ import { ChatProvider } from '@/components/providers/ChatProvider'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'MCP on Amazon Bedrock',
-  description: 'An autonomous Agent by Amazon Bedrock with MCP',
+  title: 'Strands Agents with MCP',
+  description: 'An autonomous Agent by Strands with MCP',
 }
 
 export default function RootLayout({
