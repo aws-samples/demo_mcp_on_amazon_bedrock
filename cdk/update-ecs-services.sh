@@ -30,45 +30,45 @@ BACKEND_ECR="$ACCOUNT_ID.dkr.ecr.$REGION.$ECR_DOMAIN/${PREFIX}-backend"
 echo "前端 ECR: $FRONTEND_ECR"
 echo "后端 ECR: $BACKEND_ECR"
 
-# 1. 登录到 ECR
-echo "========================================="
-echo "步骤 1: 登录到 ECR"
-echo "========================================="
-aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.$ECR_DOMAIN
+# # 1. 登录到 ECR
+# echo "========================================="
+# echo "步骤 1: 登录到 ECR"
+# echo "========================================="
+# aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.$ECR_DOMAIN
 
-# 2. 构建和推送前端镜像
-echo "========================================="
-echo "步骤 2: 构建和推送前端镜像"
-echo "========================================="
-cd ../react_ui
-echo "构建前端镜像 (ARM64)..."
-if [[ $IS_CHINA_REGION == true ]]; then
-    echo "使用中国镜像源构建前端镜像..."
-    docker buildx build --platform linux/arm64 --build-arg USE_CHINA_MIRROR=true -t ${PREFIX}-frontend:latest .
-else
-    docker buildx build --platform linux/arm64 -t ${PREFIX}-frontend:latest .
-fi
-docker tag ${PREFIX}-frontend:latest $FRONTEND_ECR:latest
-echo "推送前端镜像..."
-docker push $FRONTEND_ECR:latest
-echo "前端镜像推送完成: $FRONTEND_ECR:latest"
+# # 2. 构建和推送前端镜像
+# echo "========================================="
+# echo "步骤 2: 构建和推送前端镜像"
+# echo "========================================="
+# cd ../react_ui
+# echo "构建前端镜像 (ARM64)..."
+# if [[ $IS_CHINA_REGION == true ]]; then
+#     echo "使用中国镜像源构建前端镜像..."
+#     docker buildx build --platform linux/arm64 --build-arg USE_CHINA_MIRROR=true -t ${PREFIX}-frontend:latest .
+# else
+#     docker buildx build --platform linux/arm64 -t ${PREFIX}-frontend:latest .
+# fi
+# docker tag ${PREFIX}-frontend:latest $FRONTEND_ECR:latest
+# echo "推送前端镜像..."
+# docker push $FRONTEND_ECR:latest
+# echo "前端镜像推送完成: $FRONTEND_ECR:latest"
 
-# 3. 构建和推送后端镜像
-echo "========================================="
-echo "步骤 3: 构建和推送后端镜像"
-echo "========================================="
-cd ..
-echo "构建后端镜像 (ARM64)..."
-if [[ $IS_CHINA_REGION == true ]]; then
-    echo "使用中国镜像源构建后端镜像..."
-    docker buildx build --platform linux/arm64 --build-arg USE_CHINA_MIRROR=true -t ${PREFIX}-backend:latest -f Dockerfile.backend .
-else
-    docker buildx build --platform linux/arm64 -t ${PREFIX}-backend:latest -f Dockerfile.backend .
-fi
-docker tag ${PREFIX}-backend:latest $BACKEND_ECR:latest
-echo "推送后端镜像..."
-docker push $BACKEND_ECR:latest
-echo "后端镜像推送完成: $BACKEND_ECR:latest"
+# # 3. 构建和推送后端镜像
+# echo "========================================="
+# echo "步骤 3: 构建和推送后端镜像"
+# echo "========================================="
+# cd ..
+# echo "构建后端镜像 (ARM64)..."
+# if [[ $IS_CHINA_REGION == true ]]; then
+#     echo "使用中国镜像源构建后端镜像..."
+#     docker buildx build --platform linux/arm64 --build-arg USE_CHINA_MIRROR=true -t ${PREFIX}-backend:latest -f Dockerfile.backend .
+# else
+#     docker buildx build --platform linux/arm64 -t ${PREFIX}-backend:latest -f Dockerfile.backend .
+# fi
+# docker tag ${PREFIX}-backend:latest $BACKEND_ECR:latest
+# echo "推送后端镜像..."
+# docker push $BACKEND_ECR:latest
+# echo "后端镜像推送完成: $BACKEND_ECR:latest"
 
 # 4. 更新 ECS 服务
 echo "========================================="
