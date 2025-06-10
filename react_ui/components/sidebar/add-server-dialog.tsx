@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/lib/store';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { addMcpServer as apiAddMcpServer } from '@/lib/api';
+import { addMcpServer as apiAddMcpServer } from '@/lib/api/chat';
 
 interface AddServerDialogProps {
   onClose: () => void;
@@ -105,11 +105,12 @@ export default function AddServerDialog({ onClose }: AddServerDialogProps) {
       }
       
       const result = await apiAddMcpServer(
+        'anonymous', // userId - you may want to get this from store
         finalServerId,
         serverName,
         finalServerCommand,
         args,
-        activeTab === 'form' ? env : {},
+        activeTab === 'form' ? env : null,
         activeTab === 'json' ? configJson : {}
       );
       

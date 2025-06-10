@@ -23,10 +23,12 @@ class ChatClient:
         # self.max_history = int(os.environ.get('MAX_HISTORY_TURN',5))*2
         self.messages = [] # History messages without system message
         self.system = None
+        self.agent = None
     
     def clear_history(self):
         """clear session message of this client"""
         self.messages = []
         self.system = None
-        self.cache_checkpoint = 0
-        self.reset_checkpoint = 0
+    
+    def save_history(self):
+        self.messages = self.agent.messages

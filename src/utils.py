@@ -16,6 +16,7 @@ import re
 import threading
 from dotenv import load_dotenv
 from urllib.parse import urlparse
+from botocore.exceptions import ClientError
 
 # Initialize logger
 
@@ -33,6 +34,34 @@ user_mcp_server_configs = {}  # 用户特有的MCP服务器配置 user_id -> {se
 global_mcp_server_configs = {}  # 全局MCP服务器配置 server_id -> config
 
 session_lock = threading.RLock()
+
+def get_secret(secret_name):
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=  os.environ.get('AWS_REGION', 'us-east-1')
+
+    )
+    try:
+        get_secret_value_response = client.get_secret_value(
+            SecretId=secret_name
+        )
+    except ClientError as e:
+        # For a list of exceptions thrown, see
+        # https://docs.amazonaws.cn/secretsmanager/latest/apireference/API_GetSecretValue.html
+        logger.warning(f"no secret {str(e)} ")
+        return None
+
+    secret = get_secret_value_response['SecretString']
+    return secret
+
+def init_api_key():
+    if os.environ.get('API_KEY') and os.environ.get('API_KEY').startswith("arn:aws"):
+        secret = get_secret(os.environ['API_KEY'])
+        if secret:
+            os.environ['API_KEY'] = secret.get('api_key')
+    
 
 if DDB_TABLE:
     try:

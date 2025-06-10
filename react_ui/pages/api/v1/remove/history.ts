@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { getAuthHeaders, getBaseUrl } from '@/lib/api/chat';
+import { getBaseUrl } from '@/lib/api/chat';
+import { getAuthHeaders } from '@/lib/auth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -19,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     const response = await fetch(url, {
       method: 'POST',
-      headers: getAuthHeaders(userId)
+      headers: await getAuthHeaders(userId)
     });
     
     // Get response from backend

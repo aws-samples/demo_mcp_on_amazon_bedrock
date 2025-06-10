@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useStore } from '@/lib/store';
-import { fetchModels, fetchMcpServers } from '@/lib/api';
+import { fetchModels, fetchMcpServers } from '@/lib/api/chat';
 import { v4 as uuidv4 } from 'uuid';
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {

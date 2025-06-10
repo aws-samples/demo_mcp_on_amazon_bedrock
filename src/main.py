@@ -36,8 +36,9 @@ from fastapi.exceptions import RequestValidationError
 from mcp_client_strands import StrandsMCPClient
 from strands_agent_client_stream import StrandsAgentClientStream
 from fastapi import APIRouter
-from utils import is_endpoint_sse
+from utils import is_endpoint_sse,init_api_key
 from data_types import *
+from health import router as health_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +50,10 @@ logger = logging.getLogger(__name__)
 
 # 全局模型和服务器配置
 load_dotenv()  # load env vars from .env
+
+#从secrets manager中读取api key
+init_api_key()
+
 llm_model_list = {}
 shared_mcp_server_list = {}  # 共享的MCP服务器描述信息
 # 用户会话存储
@@ -247,6 +252,24 @@ async def shutdown_event():
 
 app = FastAPI(lifespan=lifespan)
 
+@app.middleware("http")
+async def filter_health_check_logs(request: Request, call_next):
+    # 如果是健康检查请求，临时提高日志级别以屏蔽INFO级别的日志
+    if request.url.path == "/api/health":
+        logger = logging.getLogger("uvicorn.access")
+        original_level = logger.level
+        try:
+            logger.setLevel(logging.WARNING)  # 临时提高到WARNING级别
+            response = await call_next(request)
+            return response
+        finally:
+            # 确保即使发生异常也会恢复日志级别
+            logger.setLevel(original_level)
+    
+    # 处理其他所有请求
+    response = await call_next(request)
+    return response
+
 # 添加CORS中间件支持跨域请求和自定义头
 app.add_middleware(
     CORSMiddleware,
@@ -411,6 +434,7 @@ async def stop_stream(
 
 # 将stop_router包含在主应用中, 注意这个顺序必须在接口定义之后
 app.include_router(stop_router)
+app.include_router(health_router)
 
 @app.post("/v1/add/mcp_server")
 async def add_mcp_server(
@@ -586,6 +610,22 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
             logger.info(f"active_streams:{active_streams}")
         except Exception as e:
             logger.error(f"Error registering stream {stream_id}: {e}")
+    
+    # 心跳任务控制
+    heartbeat_task = None
+    heartbeat_stop_event = asyncio.Event()
+    
+    async def heartbeat_sender():
+        """独立的心跳发送任务"""
+        try:
+            while not heartbeat_stop_event.is_set():
+                await asyncio.sleep(15)  # 每15秒发送一次心跳
+                if not heartbeat_stop_event.is_set():
+                    logger.info("sse heartbeat")
+                    yield ": heartbeat\n\n"
+        except asyncio.CancelledError:
+            pass
+    
     # Process messages with possible structured content
     messages = []
     for file_idx, msg in enumerate(data.messages):
@@ -691,6 +731,7 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
     # bedrock's first turn cannot be assistant
     if messages and messages[0]['role'] == 'assistant':
         messages = messages[1:]
+    
     try:
         current_content = ""
         thinking_start = False
@@ -699,117 +740,140 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
         
         last_heartbeat = time.time()
         heartbeat_interval = 20  # 秒
-    
-        # 使用用户特定的chat_client和mcp_clients
-        async for response in session.chat_client.process_query_stream(
-                model_id=data.model,
-                max_tokens=data.max_tokens,
-                temperature=data.temperature,
-                messages=messages,
-                system=system,
-                max_turns=MAX_TURNS,
-                mcp_clients=session.mcp_clients,
-                mcp_server_ids=data.mcp_server_ids,
-                extra_params=data.extra_params,
-                keep_session=data.keep_session,
-                stream_id=stream_id,
-                ):
-            # logger.info(f"{response}")
-            event_data = {
-                "id": f"chat{time.time_ns()}",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": data.model,
-                "choices": [{
-                    "index": 0,
-                    "delta": {},
-                    "finish_reason": None
-                }]
-            }
-            
-            # 处理不同的事件类型
-            if response["type"] == "message_start":
-                event_data["choices"][0]["delta"] = {"role": "assistant"}
-            
-            elif response["type"] == "block_delta":
-                if "text" in response["data"]["delta"]:
-                    text = ""
-                    if thinking_text_index >= 1 and thinking_start:    
-                        thinking_start = False
-                        text = "</thinking>"
-                    text += response["data"]["delta"]["text"]
-                    current_content += text
-                    event_data["choices"][0]["delta"] = {"content": text}
-                    thinking_text_index = 0
-                    
-                if "toolUse" in response["data"]["delta"]:
-                    text = ""
-                    if not tooluse_start:    
-                        tooluse_start = True
-                        text = "<tool_input>"
-                    text += response["data"]["delta"]["toolUse"]['input']
-                    current_content += text
-                    event_data["choices"][0]["delta"] = {"content": text}
-                    
-                if "reasoningContent" in response["data"]["delta"]:
-                    if 'text' in response["data"]["delta"]["reasoningContent"]:
-                        if not thinking_start:
-                            text = "<thinking>" + response["data"]["delta"]["reasoningContent"]["text"]
-                            thinking_start = True
-                        else:
-                            text = response["data"]["delta"]["reasoningContent"]["text"]
-                        event_data["choices"][0]["delta"] = {"content": text}
-                        thinking_text_index += 1
-
-            elif response["type"] == "block_stop":
-                if tooluse_start:
-                    text =  "</tool_input>"
-                    current_content += text
-                    tooluse_start = False
-                    event_data["choices"][0]["delta"] = {"content": text}
-                    
-            elif response["type"] in [ "message_stop" ,"result_pairs"]:
-                event_data["choices"][0]["finish_reason"] = response["data"]["stopReason"]
-                if response["data"].get("tool_results"):
-                    event_data["choices"][0]["message_extras"] = {
-                        "tool_use": json.dumps(response["data"]["tool_results"],ensure_ascii=False)
-                    }
-
-            elif response["type"] == "error":
-                event_data["choices"][0]["finish_reason"] = "error"
-                event_data["choices"][0]["delta"] = {
-                    "content": f"Error: {response['data']['error']}"
-                }
-
-            # 发送事件
-            yield f"data: {json.dumps(event_data)}\n\n"
-            
-            # 添加心跳检查
-            current_time = time.time()
-            if current_time - last_heartbeat > heartbeat_interval:
-                yield ": keeping alive\n\n"  # SSE 注释格式的心跳
-                last_heartbeat = current_time
-                
-            # 手动停止流式响应
-            if response["type"] == "stopped":
+        
+        # 创建合并的异步生成器，同时处理响应流和心跳
+        response_stream = session.chat_client.process_query_stream(
+            model_id=data.model,
+            max_tokens=data.max_tokens,
+            temperature=data.temperature,
+            messages=messages,
+            system=system,
+            max_turns=MAX_TURNS,
+            mcp_clients=session.mcp_clients,
+            mcp_server_ids=data.mcp_server_ids,
+            extra_params=data.extra_params,
+            keep_session=data.keep_session,
+            stream_id=stream_id,
+        )
+        
+        # 创建心跳生成器
+        heartbeat_gen = heartbeat_sender()
+        
+        # 使用合并流来处理响应和心跳
+        async for item in _merge_streams(response_stream, heartbeat_gen):
+            if isinstance(item, dict):  # 来自 process_query_stream 的响应
+                response = item
+                # logger.info(f"{response}")
                 event_data = {
-                    "id": f"stop{time.time_ns()}",
+                    "id": f"chat{time.time_ns()}",
                     "object": "chat.completion.chunk",
                     "created": int(time.time()),
                     "model": data.model,
                     "choices": [{
                         "index": 0,
                         "delta": {},
-                        "finish_reason": "stop_requested"
+                        "finish_reason": None
                     }]
                 }
-                yield f"data: {json.dumps(event_data)}\n\n"
-                yield "data: [DONE]\n\n"
-                break
+                
+                # 处理不同的事件类型
+                if response["type"] == "message_start":
+                    event_data["choices"][0]["delta"] = {"role": "assistant"}
+                
+                elif response["type"] == "block_delta":
+                    if "text" in response["data"]["delta"]:
+                        text = ""
+                        if thinking_text_index >= 1 and thinking_start:    
+                            thinking_start = False
+                            text = "</thinking>"
+                        text += response["data"]["delta"]["text"]
+                        current_content += text
+                        event_data["choices"][0]["delta"] = {"content": text}
+                        thinking_text_index = 0
+                        
+                    if "toolUse" in response["data"]["delta"]:
+                        text = ""
+                        if not tooluse_start:    
+                            tooluse_start = True
+                            text = "<tool_input>"
+                        text += response["data"]["delta"]["toolUse"]['input']
+                        current_content += text
+                        event_data["choices"][0]["delta"] = {"content": text}
+                        
+                    if "reasoningContent" in response["data"]["delta"]:
+                        if 'text' in response["data"]["delta"]["reasoningContent"]:
+                            if not thinking_start:
+                                text = "<thinking>" + response["data"]["delta"]["reasoningContent"]["text"]
+                                thinking_start = True
+                            else:
+                                text = response["data"]["delta"]["reasoningContent"]["text"]
+                            event_data["choices"][0]["delta"] = {"content": text}
+                            thinking_text_index += 1
 
-            # 发送结束标记
-            if response["type"] == "message_stop" and response["data"]["stopReason"] == 'end_turn':
-                yield "data: [DONE]\n\n"
+                elif response["type"] == "block_stop":
+                    if tooluse_start:
+                        text =  "</tool_input>"
+                        current_content += text
+                        tooluse_start = False
+                        event_data["choices"][0]["delta"] = {"content": text}
+                        
+                elif response["type"] in [ "message_stop" ,"result_pairs"]:
+                    event_data["choices"][0]["finish_reason"] = response["data"]["stopReason"]
+                    if response["data"].get("tool_results"):
+                        event_data["choices"][0]["message_extras"] = {
+                            "tool_use": json.dumps(response["data"]["tool_results"],ensure_ascii=False)
+                        }
+
+                elif response["type"] == "error":
+                    event_data["choices"][0]["finish_reason"] = "error"
+                    event_data["choices"][0]["delta"] = {
+                        "content": f"Error: {response['data']['error']}"
+                    }
+
+                # 发送事件
+                yield f"data: {json.dumps(event_data)}\n\n"
+                
+                # 更新心跳时间
+                last_heartbeat = time.time()
+                    
+                # 手动停止流式响应
+                if response["type"] == "stopped":
+                    event_data = {
+                        "id": f"stop{time.time_ns()}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": data.model,
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop_requested"
+                        }]
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    break
+                
+                # 发送结束标记
+                if response["type"] == "message_stop" and response["data"]["stopReason"] in ['end_turn','max_tokens']:
+                    if response["data"]["stopReason"] == 'max_tokens':
+                        event_data = {
+                            "id": f"stop{time.time_ns()}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": data.model,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"content":"<max output token reached>"},
+                                "finish_reason": "max_tokens"
+                            }]
+                        }
+                        yield f"data: {json.dumps(event_data)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    break
+                    
+            elif isinstance(item, str):  # 来自心跳的消息
+                yield item
+            
 
     except Exception as e:
         logger.error(f"Stream error for user {session.user_id}: {e}",exc_info=True)
@@ -830,6 +894,11 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
         yield "data: [DONE]\n\n"
         
     finally:
+        # 停止心跳任务
+        heartbeat_stop_event.set()
+        
+        # save history message 
+        session.chat_client.save_history()
         # 清除活跃流列表中的请求
         try:
             if stream_id:
@@ -840,6 +909,74 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
                     logger.info(f"Stream {stream_id} unregistered")
         except Exception as e:
             logger.error(f"Error cleaning up stream {stream_id}: {e}")
+
+
+async def _merge_streams(*streams):
+    """合并多个异步生成器流"""
+    import asyncio
+    from collections import deque
+    
+    # 创建队列来存储每个流的状态
+    stream_tasks = []
+    for stream in streams:
+        stream_iter = aiter(stream)
+        task = asyncio.create_task(anext(stream_iter, StopAsyncIteration))
+        stream_tasks.append((task, stream_iter))
+    
+    try:
+        while stream_tasks:
+            # 等待任何一个流产生结果
+            done, pending = await asyncio.wait(
+                [task for task, _ in stream_tasks], 
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # 处理完成的任务
+            new_stream_tasks = []
+            for task, stream_iter in stream_tasks:
+                if task in done:
+                    try:
+                        result = await task
+                        if result is not StopAsyncIteration:
+                            yield result
+                            # 创建新任务来获取下一个值
+                            new_task = asyncio.create_task(anext(stream_iter, StopAsyncIteration))
+                            new_stream_tasks.append((new_task, stream_iter))
+                        # 如果结果是 StopAsyncIteration，该流已结束，不重新添加
+                    except StopAsyncIteration:
+                        # 流已结束
+                        pass
+                    except Exception as e:
+                        logger.error(f"Error in merged stream task: {e}")
+                        # 取消所有正在运行和新添加的任务
+                        for t, _ in stream_tasks:
+                            if not t.done():
+                                t.cancel()
+                        for t, _ in new_stream_tasks:
+                            if not t.done():
+                                t.cancel()
+                        # 把异常继续向外抛出
+                        raise
+            
+                else:
+                    # 任务仍在运行
+                    new_stream_tasks.append((task, stream_iter))
+                    
+            stream_tasks = new_stream_tasks
+            
+    except Exception as e:
+        logger.error(f"Error in _merge_streams: {e}")
+        # 把异常继续向外抛出
+        raise
+    finally:
+        # 清理所有剩余的任务
+        for task, _ in stream_tasks:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
 @app.post("/v1/chat/completions")
 async def chat_completions(

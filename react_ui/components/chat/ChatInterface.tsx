@@ -8,7 +8,7 @@ import { useStore, McpServer } from '@/lib/store';
 import { v4 as uuidv4 } from 'uuid';
 // import { ToolInputPanel } from './ToolInputPanel';
 import { ToolUsagePanel } from './ToolUsagePanel';
-import { fetchMcpServers } from '@/lib/api';
+import { fetchMcpServers } from '@/lib/api/chat';
 
 export default function ChatInterface() {
   const [showSettings, setShowSettings] = useState(false);

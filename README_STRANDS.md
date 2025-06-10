@@ -1,46 +1,52 @@
-# Strands Agents SDK Integration
+# Strands Agents SDK 集成
 
-This document describes how to use the Strands Agents SDK integration in this agent service.
+本文档描述了如何在此代理服务中使用 Strands Agents SDK 集成。
 
-## Overview
+## 概述
 
-The Strands Agents SDK integration provides a new agent implementation that leverages the Strands framework for building AI agents. This implementation maintains compatibility with the existing API while using Strands' powerful agent capabilities.
+Strands Agents SDK 集成提供了一个新的代理实现，它利用 Strands 框架构建 AI 代理。这种实现在使用 Strands 强大的代理功能的同时，保持了与现有 API 的兼容性。
 
-## Features
+## 功能特点
 
-- **Full compatibility** with existing API endpoints
-- **Streaming support** for real-time responses
-- **MCP tool integration** - All existing MCP tools work seamlessly
-- **Multiple model providers** - Support for Bedrock, OpenAI, and Anthropic
-- **Session management** - Maintains conversation history
-- **Tool calling** - Automatic integration with MCP servers
+- **完全兼容**现有 API 端点
+- **流式支持**实时响应
+- **MCP 工具集成** - 所有现有 MCP 工具无缝运行
+- **多模型提供商** - 支持 Bedrock、OpenAI 和 Anthropic
+- **会话管理** - 维护对话历史
+- **工具调用** - 自动与 MCP 服务器集成
 
-## Configuration
+## 配置
 
-### Environment Variables
+### 环境变量
 
-Add the following environment variables to enable Strands Agents:
+添加以下环境变量以启用 Strands Agents：
 
 ```bash
-# Enable Strands client
+LOG_DIR=./logs
+CHATBOT_SERVICE_PORT=8502
+MCP_SERVICE_HOST=0.0.0.0
+MCP_SERVICE_PORT=7002
+API_KEY=123456
+
+# 启用 Strands 客户端
 CLIENT_TYPE=strands
 
-# Model provider (bedrock, openai, anthropic)
+# 模型提供商（bedrock, openai, anthropic）
 STRANDS_MODEL_PROVIDER=bedrock
 
-# API credentials (depending on provider)
+# API 凭证（取决于提供商）
 STRANDS_API_KEY=your_api_key_here
-STRANDS_API_BASE=https://api.openai.com/v1  # For OpenAI-compatible APIs
+STRANDS_API_BASE=https://api.openai.com/v1  # 用于 OpenAI 兼容的 API
 
-# AWS credentials (for Bedrock)
+# AWS 凭证（用于 Bedrock）
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_REGION=us-east-1
 ```
 
-### Model Provider Configuration
+### 模型提供商配置
 
-#### Bedrock (Default)
+#### Bedrock（默认）
 ```bash
 CLIENT_TYPE=strands
 STRANDS_MODEL_PROVIDER=bedrock
@@ -57,28 +63,28 @@ STRANDS_API_KEY=your_openai_api_key
 STRANDS_API_BASE=https://api.openai.com/v1
 ```
 
-## Usage
+## 使用方法
 
-### Starting the Server
+### 启动服务器
 
-1. Install Strands Agents SDK:
+1. 安装 Strands Agents SDK：
 ```bash
 pip install strands-agents
-pip install strands-agents-tools  # Optional: for built-in tools
+pip install strands-agents-tools  # 可选：用于内置工具
 ```
 
-2. Set environment variables as described above
+2. 按上述说明设置环境变量
 
-3. Start the server:
+3. 启动服务器：
 ```bash
 python src/main.py --mcp-conf conf/config.json
 ```
 
-### API Usage
+### API 使用
 
-The Strands integration uses the same API endpoints as the existing service:
+Strands 集成使用与现有服务相同的 API 端点：
 
-#### Chat Completions (Non-streaming)
+#### 聊天完成（非流式）
 ```bash
 curl -X POST http://localhost:7002/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -92,7 +98,7 @@ curl -X POST http://localhost:7002/v1/chat/completions \
   }'
 ```
 
-#### Chat Completions (Streaming)
+#### 聊天完成（流式）
 ```bash
 curl -X POST http://localhost:7002/v1/chat/completions \
   -H "Content-Type: application/json" \
@@ -107,32 +113,32 @@ curl -X POST http://localhost:7002/v1/chat/completions \
   }'
 ```
 
-## MCP Tool Integration
+## MCP 工具集成
 
-The Strands integration automatically converts MCP tools to Strands-compatible tools. All existing MCP servers and tools work without modification.
+Strands 集成自动将 MCP 工具转换为 Strands 兼容工具。所有现有 MCP 服务器和工具无需修改即可工作。
 
-### Example MCP Tool Usage
+### MCP 工具使用示例
 
 ```python
-# Your MCP tools are automatically available in Strands agents
-# No additional configuration needed
+# 您的 MCP 工具在 Strands 代理中自动可用
+# 无需额外配置
 ```
 
-## Model Support
+## 模型支持
 
-### Supported Models
+### 支持的模型
 
-#### Bedrock Models
+#### Bedrock 模型
 
-#### OpenAI Compatible Models
+#### OpenAI 兼容模型
 
-#### Anthropic Models
+#### Anthropic 模型
 
-## Advanced Features
+## 高级功能
 
-### Custom System Prompts
+### 自定义系统提示
 
-System prompts are automatically converted from the existing format:
+系统提示会自动从现有格式转换：
 
 ```json
 {
@@ -143,18 +149,17 @@ System prompts are automatically converted from the existing format:
 }
 ```
 
-### Session Management
+### 会话管理
 
-Sessions are maintained automatically in the backend, client does not have to resend history messages to the backend
+会话在后端自动维护，客户端无需向后端重新发送历史消息
 
+### 流式控制
 
-### Streaming Control
-
-Streams can be stopped using the existing stop endpoint:
+可以使用现有的停止端点停止流：
 
 ```bash
 curl -X POST http://localhost:7002/v1/stop/stream/{stream_id} \
   -H "Authorization: Bearer your_api_key"
 ```
 
-The Strands integration is designed to be a drop-in replacement for existing functionality while providing enhanced agent capabilities.
+Strands 集成旨在成为现有功能的即插即用替代品，同时提供增强的代理功能。

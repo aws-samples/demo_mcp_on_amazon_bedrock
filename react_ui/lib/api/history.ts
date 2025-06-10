@@ -1,15 +1,18 @@
-import { getBaseUrl, getAuthHeaders } from './chat';
+import { getBaseUrl } from './chat';
+import { getAuthHeaders } from '../auth'
+
+
 
 /**
  * Request to remove history from server
  */
 export async function removeHistory(userId: string) {
   const baseUrl = getBaseUrl();
-  const url = `${baseUrl.replace(/\/$/, '')}/v1/remove/history`;
+  const url = `${baseUrl.replace(/\/$/, '')}/remove/history`;
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: getAuthHeaders(userId)
+      headers: await getAuthHeaders(userId)
     });
     
     if (!response.ok) {

@@ -5,7 +5,7 @@ import { useStore } from '@/lib/store'
 import * as Select from "@radix-ui/react-select"
 import { Check, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fetchModels } from '@/lib/api'
+import { fetchModels } from '@/lib/api/chat'
 
 interface ModelData {
   model_name?: string;

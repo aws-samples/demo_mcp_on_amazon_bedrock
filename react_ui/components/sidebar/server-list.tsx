@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useStore } from '@/lib/store'
-import { fetchMcpServers, removeMcpServer } from '@/lib/api'
+import { fetchMcpServers, removeMcpServer } from '@/lib/api/chat'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Trash2 } from 'lucide-react'

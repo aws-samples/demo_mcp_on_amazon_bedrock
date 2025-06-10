@@ -1,0 +1,65 @@
+# Backend Dockerfile for FastAPI application - ARM64 optimized
+FROM --platform=linux/arm64 python:3.12-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add build argument for China region support
+ARG USE_CHINA_MIRROR=false
+
+# Configure pip mirrors for China region if needed
+RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
+        echo "Configuring pip mirrors for China region..."; \
+        pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+        pip config set global.extra-index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+        pip config set global.trusted-host mirrors.tuna.tsinghua.edu.cn; \
+    fi
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# Copy requirements
+COPY pyproject.toml ./
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -e .
+
+# forkrepo，支持r1 reasoning content
+RUN pip install git+https://github.com/xiehust/sdk-python.git
+# RUN pip install git+https://ghproxy.cn/https://github.com/xiehust/sdk-python.git
+# download mcp repo 
+RUN git clone https://github.com/aws-samples/aws-mcp-servers-samples
+# RUN git clone https://ghproxy.cn/https://github.com/aws-samples/aws-mcp-servers-samples
+
+
+# Copy source code
+COPY src/ ./src/
+COPY conf/ ./conf/
+COPY docs/ ./docs/
+
+# move to cn
+RUN cp ./conf/config_cn.json ./conf/config.json
+# Create certificates directory
+RUN mkdir -p certificates
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Expose port
+EXPOSE 7002
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:7002/api/health || exit 1
+
+# Run the application
+# CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "7002"]
+CMD ["python", "src/main.py", "--mcp-conf","conf/config.json", "--user-conf","conf/user_mcp_config.json","--host", "0.0.0.0", "--port", "7002"]

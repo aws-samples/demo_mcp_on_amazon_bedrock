@@ -228,11 +228,6 @@ class StrandsAgentClientStream(StrandsAgentClient):
                     # logger.info(new_event)
                 
             if event["type"] == "message_stop":     
+                # Save the system to session
+                self.system = system
                 yield event
-                 
-        # Save the max history to session
-        self.messages = self.agent.messages
-        self.system = system
-        # Clean up the stop flag after streaming completes
-        if stream_id:
-            self.unregister_stream(stream_id)

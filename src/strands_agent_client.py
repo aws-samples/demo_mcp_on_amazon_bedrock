@@ -115,6 +115,9 @@ class StrandsAgentClient(ChatClient):
                 cache_tools = "default"
             else:
                 cache_tools = None
+                
+            if model_id in [CLAUDE_4_SONNET_MODEL_ID,CLAUDE_4_OPUS_MODEL_ID,CLAUDE_37_SONNET_MODEL_ID] and thinking:
+                temperature = 1.0
 
             return BedrockModel(
                 model_id=model_id,

@@ -1,5 +1,5 @@
 [project]
-name = "mcp-client"
+name = "strands-agent-mcp"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -13,15 +13,11 @@ dependencies = [
     "mcp>=1.6.0",
     "openai>=1.75.0",
     "pandas>=2.2.3",
-    "pyaudio>=0.2.14",
     "python-dotenv>=1.0.1",
     "pytz>=2024.2",
     "requests>=2.32.3",
     "rx>=3.2.0",
     "smithy-aws-core>=0.0.1",
-    "streamlit>=1.41.1",
-    "streamlit-cookies-controller>=0.0.4",
-    "streamlit-local-storage>=0.0.25",
     "tzdata>=2024.2",
     "uvicorn>=0.34.0",
     "websockets>=15.0.1",

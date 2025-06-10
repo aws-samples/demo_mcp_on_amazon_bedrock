@@ -1,4 +1,6 @@
-import { Message } from '../store/chatStore';
+import { Message } from '../store';
+import { getAuthHeaders } from '../auth'
+
 
 // Get environment variables with server/client detection
 export const getBaseUrl = () => {
@@ -8,8 +10,14 @@ export const getBaseUrl = () => {
     const baseUrl = process.env.SERVER_MCP_BASE_URL || 'http://localhost:7002';
     return baseUrl;
   } else {
-    // Client-side: use public URL
-    return process.env.NEXT_PUBLIC_MCP_BASE_URL || '';
+    // Client-side: use public URL with environment-aware path
+    const publicUrl = process.env.NEXT_PUBLIC_MCP_BASE_URL || '/api';
+    // In production, requests go directly to backend via ALB, so use /v1 directly
+    if (process.env.NODE_ENV === 'production') {
+      return '/v1';
+    }
+    // In development, use /api/v1 for Next.js API routes
+    return `${publicUrl}/v1`;
   }
 };
 
@@ -21,25 +29,45 @@ if (typeof window === 'undefined') {
 
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
+// Get user ID from local storage with fallback
+const getUserId = () => {
+  let userId = localStorage.getItem('mcp_chat_user_id') || 'anonymous';
+  
+  // Check if the stored ID is a JSON object with mcp_chat_user_id key
+  if (userId && userId.includes('{')) {
+    try {
+      const parsedId = JSON.parse(userId);
+      if (parsedId && typeof parsedId === 'object' && parsedId.mcp_chat_user_id) {
+        userId = parsedId.mcp_chat_user_id;
+      }
+    } catch (e) {
+      // If parsing fails, use the original ID as is
+    }
+  }
+  
+  return userId;
+}
+
 /**
  * Get authentication headers with user ID
  */
-export const getAuthHeaders = (userId: string) => {
-  return {
-    'Authorization': `Bearer ${API_KEY}`,
-    'X-User-ID': userId
-  };
-};
+// const getAuthHeaders = async (userId: string) => {
+//   return {
+//     'Authorization': `Bearer ${apiKey}`,
+//     'X-User-ID': userId,
+//     'Content-Type': 'application/json'
+//   }
+// }
 
 /**
  * Request list of available models
  */
 export async function listModels(userId: string) {
   const baseUrl = getBaseUrl();
-  const url = `${baseUrl.replace(/\/$/, '')}/v1/list/models`;
+  const url = `${baseUrl.replace(/\/$/, '')}/list/models`;
   try {
     const response = await fetch(url, {
-      headers: getAuthHeaders(userId)
+      headers: await getAuthHeaders(userId)
     });
     
     if (!response.ok) {
@@ -59,10 +87,10 @@ export async function listModels(userId: string) {
  */
 export async function listMcpServers(userId: string) {
   const baseUrl = getBaseUrl();
-  const url = `${baseUrl.replace(/\/$/, '')}/v1/list/mcp_server`;
+  const url = `${baseUrl.replace(/\/$/, '')}/list/mcp_server`;
   try {
     const response = await fetch(url, {
-      headers: getAuthHeaders(userId)
+      headers: await getAuthHeaders(userId)
     });
     
     if (!response.ok) {
@@ -74,6 +102,32 @@ export async function listMcpServers(userId: string) {
   } catch (error) {
     console.error('Error listing MCP servers:', error);
     return [];
+  }
+}
+
+/**
+ * Remove an MCP server
+ */
+export async function removeMcpServer(serverId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const baseUrl = getBaseUrl();
+    const headers = await getAuthHeaders(getUserId());
+    const response = await fetch(`${baseUrl}/remove/mcp_server/${serverId}`, {
+      method: 'DELETE',
+      headers
+    });
+    
+    const data = await response.json();
+    return {
+      success: data.errno === 0,
+      message: data.msg || 'Unknown error'
+    };
+  } catch (error) {
+    console.error('Error removing MCP server:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
+    };
   }
 }
 
@@ -90,7 +144,7 @@ export async function addMcpServer(
   configJson: Record<string, any> = {}
 ) {
   const baseUrl = getBaseUrl();
-  const url = `${baseUrl.replace(/\/$/, '')}/v1/add/mcp_server`;
+  const url = `${baseUrl.replace(/\/$/, '')}/add/mcp_server`;
   
   try {
     const payload: any = {
@@ -108,7 +162,7 @@ export async function addMcpServer(
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        ...getAuthHeaders(userId),
+        ...await getAuthHeaders(userId),
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload)
@@ -345,7 +399,7 @@ export async function stopStream(userId: string, streamId: string) {
   }
 
   const baseUrl = getBaseUrl();
-  const url = `${baseUrl.replace(/\/$/, '')}/v1/stop/stream/${streamId}`;
+  const url = `${baseUrl.replace(/\/$/, '')}/stop/stream/${streamId}`;
   
   try {
     const controller = new AbortController();
@@ -354,7 +408,7 @@ export async function stopStream(userId: string, streamId: string) {
     
     const response = await fetch(url, {
       method: 'POST',
-      headers: getAuthHeaders(userId),
+      headers: await getAuthHeaders(userId),
       signal: controller.signal
     });
     
@@ -382,6 +436,28 @@ export async function stopStream(userId: string, streamId: string) {
       message: 'Could not confirm stream stop, but UI has been reset'
     };
   }
+}
+
+// Compatibility wrapper functions for the old API interface
+export async function fetchModels(): Promise<any[]> {
+  return listModels(getUserId());
+}
+
+export async function fetchMcpServers(): Promise<any[]> {
+  const servers = await listMcpServers(getUserId());
+  return servers.map((server: any) => ({
+    serverName: server.server_name,
+    serverId: server.server_id,
+    enabled: false
+  }));
+}
+
+// Generate a random user ID
+export function generateRandomUserId(): string {
+  const newId = Math.random().toString(36).substring(2, 10);
+  // Ensure we always store a plain string, not a JSON object
+  localStorage.setItem('mcp_chat_user_id', newId);
+  return newId;
 }
 
 /**
@@ -423,11 +499,11 @@ export async function sendChatRequest({
   
   try {
       if (stream) {
-        // For streaming responses, use our dedicated streaming endpoint
-        const streamUrl = `${baseUrl.replace(/\/$/, '')}/v1/chat/completions-stream`;
+        // For streaming responses, use the same endpoint as non-streaming
+        const streamUrl = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
         
         const headers = {
-          ...getAuthHeaders(userId),
+          ...await getAuthHeaders(userId),
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream'
         };
@@ -454,12 +530,12 @@ export async function sendChatRequest({
         
         return { response, messageExtras: {}, streamId };
     } else {
-      // For non-streaming responses, use the standard endpoint
-      const url = `${baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
+      // For non-streaming responses, use the same endpoint
+      const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          ...getAuthHeaders(userId),
+          ...await getAuthHeaders(userId),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
