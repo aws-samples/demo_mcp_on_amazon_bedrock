@@ -4,11 +4,11 @@
 
 ## 1.概述
 
-这个基于Strands Agents SDK开发的通用型Agengtic AI应用，通过MCP的集成，实现了大语言模型与外部工具系统的无缝连接。Strands SDK作为核心引擎，提供了强大的代理能力和工具集成机制，使得整个系统具备了高度的可扩展性和实用性。
+这是基于Strands Agents SDK开发的通用型Agentic AI应用，通过MCP的集成，实现了大语言模型与外部工具系统的无缝连接。Strands SDK作为核心引擎，提供了强大的代理能力和工具集成机制，使得整个系统具备了高度的可扩展性和实用性。
 
 ### 1.1 功能特点
-- **前后端分离**MCP Client和MCP Server均可以部署到服务器端，用户可以直接使用web浏览器通过后端web服务交互，从而访问LLM和MCP Sever能力和资源
-- **React UI**基于React的用户界面，允许用户与模型交互并管理MCP服务器，显示工具调用结果和思考过程
+- **前后端分离** - MCP Client和MCP Server均可以部署到服务器端，用户可以直接使用web浏览器通过后端web服务交互，从而访问LLM和MCP Sever能力和资源
+- **React UI** - 基于React的用户界面，允许用户与模型交互并管理MCP服务器，显示工具调用结果和思考过程
 - **MCP 工具集成** - 提供STDIO, StreamableHTTP, SSE模式的MCP集成
 - **多模型提供商** - 支持 Bedrock、OpenAI及兼容模型
 - **多用户会话管理** - 维护多用户session
