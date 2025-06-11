@@ -36,7 +36,7 @@ from fastapi.exceptions import RequestValidationError
 from mcp_client_strands import StrandsMCPClient
 from strands_agent_client_stream import StrandsAgentClientStream
 from fastapi import APIRouter
-from utils import is_endpoint_sse,init_api_key
+from utils import is_endpoint_sse,init_api_key,save_stream_id,get_stream_id,active_streams,delete_stream_id,delete_user_session,get_user_session,save_user_session
 from data_types import *
 from health import router as health_router
 
@@ -58,13 +58,10 @@ llm_model_list = {}
 shared_mcp_server_list = {}  # 共享的MCP服务器描述信息
 # 用户会话存储
 user_sessions = {}
-# 活跃流式请求的字典，用于跟踪可以停止的请求
-active_streams = {}
-# 使用独立的锁来保护active_streams字典
-active_streams_lock = asyncio.Lock()
+
+
 MAX_TURNS = int(os.environ.get("MAX_TURNS",200))
 INACTIVE_TIME = int(os.environ.get("INACTIVE_TIME",60*24))  #mins
-DDB_TABLE = os.environ.get("ddb_table")  # DynamoDB表名，用于存储用户配置
 API_KEY = os.environ.get("API_KEY")
 
 security = HTTPBearer()
@@ -79,6 +76,7 @@ class UserSession:
         
         if client_type == 'strands':
             self.chat_client = StrandsAgentClientStream(
+                user_id=user_id,
                 model_provider=os.environ.get('STRANDS_MODEL_PROVIDER', 'bedrock'),
                 api_key=os.environ.get('STRANDS_API_KEY', os.environ.get('OPENAI_API_KEY')),
                 api_base=os.environ.get('STRANDS_API_BASE')
@@ -163,32 +161,46 @@ async def get_or_create_user_session(
     create_new = True
 ):
     """获取或创建用户会话，优先使用X-User-ID头，并自动初始化用户服务器"""
+    global user_sessions
     # 先验证API密钥
     await get_api_key(auth)
     
     # 尝试从请求头获取用户ID，如果不存在则使用API密钥作为备用ID
     user_id = request.headers.get("X-User-ID", auth.credentials)
     
-    # with session_lock:
-    is_new_session = user_id not in user_sessions
-    if not create_new and is_new_session:
+    session_obj = await get_user_session(user_id)
+    if not session_obj and not create_new:
         return None
-        
-    if is_new_session:
-        user_sessions[user_id] = UserSession(user_id)
-        logger.info(f"为用户 {user_id} 创建新会话: {user_sessions[user_id].session_id}")
+    
+    is_in_local = True if user_id in user_sessions else False
+    
+    # 如果全局都没有
+    if not session_obj:
+        await save_user_session(user_id,dict(user_id=user_id))
+        if user_id not in user_sessions:
+            user_sessions[user_id] = UserSession(user_id)
+            logger.info(f"为用户 {user_id} 创建新会话: {user_sessions[user_id].session_id}")
+    
+    # 如果已经在全局中，但是不在本地，则在本地new session
+    if not is_in_local and session_obj: 
+        if user_id not in user_sessions:
+            user_sessions[user_id] = UserSession(user_id)
+            logger.info(f"为用户 {user_id} 创建新会话: {user_sessions[user_id].session_id}")
     
     # 更新最后活跃时间
     user_sessions[user_id].last_active = datetime.now()
     session = user_sessions[user_id]
     
+    # 从ddb中取出配置，重新初始化，如果已经存在则跳过。
+    await initialize_user_servers(session)
+
     # 如果是新会话，初始化用户的MCP服务器
-    if is_new_session:
-        await initialize_user_servers(session)
-    elif not session.mcp_clients:# 如果用户的MCP服务器已经为空，则重新初始化
-        await initialize_user_servers(session)
-        
-    
+    # if not session_obj:
+    #     await initialize_user_servers(session)
+    # elif not is_in_local and session_obj: # 如果已经在全局中，但是不在本地，也需要初始化
+    #     await initialize_user_servers(session)
+    # elif not session.mcp_clients:# 如果用户的MCP服务器已经为空，则重新初始化
+    #     await initialize_user_servers(session)
     return session
 
 async def cleanup_inactive_sessions():
@@ -208,6 +220,7 @@ async def cleanup_inactive_sessions():
             with session_lock:
                 if user_id in user_sessions:
                     session = user_sessions.pop(user_id)
+                    await delete_user_session(user_id)
                     try:
                         await session.cleanup()
                     except Exception as e:
@@ -251,24 +264,6 @@ async def shutdown_event():
 
 
 app = FastAPI(lifespan=lifespan)
-
-@app.middleware("http")
-async def filter_health_check_logs(request: Request, call_next):
-    # 如果是健康检查请求，临时提高日志级别以屏蔽INFO级别的日志
-    if request.url.path == "/api/health":
-        logger = logging.getLogger("uvicorn.access")
-        original_level = logger.level
-        try:
-            logger.setLevel(logging.WARNING)  # 临时提高到WARNING级别
-            response = await call_next(request)
-            return response
-        finally:
-            # 确保即使发生异常也会恢复日志级别
-            logger.setLevel(original_level)
-    
-    # 处理其他所有请求
-    response = await call_next(request)
-    return response
 
 # 添加CORS中间件支持跨域请求和自定义头
 app.add_middleware(
@@ -366,7 +361,7 @@ async def stop_stream(
     auth: HTTPAuthorizationCredentials = Security(security)
 ):
     """停止正在进行的模型输出流"""
-    global active_streams
+    # global active_streams
     logger.info(f"stopping request:{stream_id} in {active_streams}")
     
     try:
@@ -376,19 +371,22 @@ async def stop_stream(
         
         # 检查流是否存在且属于当前用户
         authorized = True
-        async with active_streams_lock:
-            if stream_id in active_streams:
-                if active_streams[stream_id] != user_id:
-                    authorized = False
-            else:
-                # 流ID不在活跃列表中，但我们仍然尝试停止它
-                logger.warning(f"Stream {stream_id} not found in active_streams but still trying to stop it")
+        if await get_stream_id(stream_id) != user_id:
+            authorized = False
+            
+        saved_user_id = await get_stream_id(stream_id)
+        if saved_user_id:
+            if saved_user_id != user_id:
+                authorized = False
+        else:
+            # 流ID不在活跃列表中，但我们仍然尝试停止它
+            logger.warning(f"Stream {stream_id} not found in active_streams but still trying to stop it")
         
         if not authorized:
             return JSONResponse(content={"errno": -1, "msg": "Not authorized to stop this stream"})
         
         # 使用BackgroundTasks处理停止流的操作，确保即使客户端断开连接，流也能被正确停止
-        def stop_stream_task(stream_id, session):
+        async def stop_stream_task(stream_id, session):
             try:
                 # 调用流停止功能，即使流可能已经结束
                 success = session.chat_client.stop_stream(stream_id)
@@ -397,17 +395,16 @@ async def stop_stream(
                     
                     # 在异步任务中安全地更新共享状态
                     try:
-                        if stream_id in active_streams:
-                            active_streams.pop(stream_id, None)
-                            logger.info(f"Removed {stream_id} from active_streams")
+                        await delete_stream_id(stream_id=stream_id)
+                        logger.info(f"Removed {stream_id} from active_streams")
                     except Exception as e:
                         logger.error(f"Error removing stream from active_streams: {e}")
                 else:
                     logger.warning(f"Failed to stop stream {stream_id}")
                     # 即使返回失败也尝试从活跃流列表中移除，防止僵尸流
                     try:
-                        if stream_id in active_streams:
-                            active_streams.pop(stream_id, None)
+                        await delete_stream_id(stream_id=stream_id)
+                        logger.info(f"Removed {stream_id} from active_streams")
                     except Exception as e:
                         logger.error(f"Error removing stream from active_streams: {e}")
                         
@@ -502,8 +499,8 @@ async def add_mcp_server(
             server_script_envs=server_script_envs
         )
         
-        # 设置30秒超时
-        await asyncio.wait_for(connect_task, timeout=30.0)
+        # 设置60秒超时
+        await asyncio.wait_for(connect_task, timeout=120.0)
         
         tool_conf = await mcp_client.get_tool_config(server_id=server_id)
         logger.info(f"User {session.user_id} connected to MCP server {server_id}, tools={tool_conf}")
@@ -514,7 +511,8 @@ async def add_mcp_server(
             "command": server_cmd,
             "args": server_script_args,
             "env": server_script_envs,
-            "description": server_desc
+            "description": server_desc,
+            "token":token
         }
         await save_user_server_config(user_id, server_id, server_config)
         
@@ -597,15 +595,12 @@ async def remove_mcp_server(
 
 async def stream_chat_response(data: ChatCompletionRequest, session: UserSession, stream_id: str = None) -> AsyncGenerator[str, None]:
     """为特定用户生成流式聊天响应"""
-    # 注册流式请求，便于后续可能的停止操作
-    global active_streams
     
     # 注册流
     if stream_id:
         try:
             # 先在ChatClientStream中注册流，然后再添加到active_streams
-            # session.chat_client.register_stream(stream_id)
-            active_streams[stream_id] = session.user_id
+            await save_stream_id(stream_id=stream_id,user_id=session.user_id)
             # logger.info(f"Stream {stream_id} registered for user {session.user_id}")
             logger.info(f"active_streams:{active_streams}")
         except Exception as e:
@@ -898,15 +893,14 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
         heartbeat_stop_event.set()
         
         # save history message 
-        session.chat_client.save_history()
+        await session.chat_client.save_history()
         # 清除活跃流列表中的请求
         try:
             if stream_id:
                 # 清理同步：先从ChatClientStream中删除，再从active_streams中删除
                 session.chat_client.unregister_stream(stream_id)
-                if stream_id in active_streams:
-                    del active_streams[stream_id]
-                    logger.info(f"Stream {stream_id} unregistered")
+                await delete_stream_id(stream_id)
+                logger.info(f"Stream {stream_id} unregistered")
         except Exception as e:
             logger.error(f"Error cleaning up stream {stream_id}: {e}")
 

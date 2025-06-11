@@ -1,111 +1,53 @@
-# MCP on Amazon Bedrock[[English Readme](./README.en.md)]
-### 更新日志
-- [20250607] 全面使用Strands Agents SDK
-  - 使用Strands Agents SDK，简化代码，可以同时支持Bedrock，OpenAI(兼容) 模型，如DeepSeek R1等
-  - 请切换到strands分支
-  ```bash
-  git clone -b strands https://github.com/aws-samples/demo_mcp_on_amazon_bedrock.git
-  ```
-- [20250527] 增加DeepSeek-R1支持（使用PE实现function call）
-  - 针对中国区使用硅基流动api，或者其他openai兼容api，可以支持deepseek r1，通过PE方式实现了function call
+# Strands Agents SDK 集成
 
-- [20250516] 增加streamable http（简单token方式鉴权）
-  - 目前只支持简单的Beaer token方式验证，配置示例：add server添加json配置 
-  ```json
-  {
-    "mcpServers": {
-      "MCPServerApi": {
-        "url": "https://xxx.execute-api.us-east-1.amazonaws.com/Prod/mcp",
-        "token":"123456"
-      }
-    }
-  }
-  ``` 
-  可以用aws lambda开发部署serverless http stream sever，参考示例：https://github.com/mikegc-aws/Lambda-MCP-Server
+本文档描述了如何在此代理服务中使用 Strands Agents SDK 集成。
 
-- [20250507] 新增Nova Premier和Nova Sonic 语音Agent模式，见第6节介绍
- - ⚠️ 如果在ec2部署，需要使用[HTTPS方式部署](HTTPS_SETUP.md)，如果在本地则沿用之前的部署方式.
+## 1.概述
 
-- [20250419] Keep Server Session 功能，可以在服务器端保存session所有历史消息，包括（Tool use历史）
-  - UI开启方法：UI上通过`Keep Session on Server`开关控制,点击`Clear Conversion`时，会向服务端发起`v1/remove/history`请求清空服务器session消息。
-  - 如果直接使用服务端接口，在ChatCompletionRequest中加入keep_session=True,表示在服务端保存，messages中只需要传入system和最新的user 即可，无须再传入历史消息。
-  - 如果要清空服务器端历史，需要发起`POST v1/remove/history`请求
-  
-- [20250418] 新增中国区硅基流动deepseek v3,Qwen3模型支持，新增sse server支持
-  - 注意如果是升级安装，需要运行`uv sync`更新依赖环境
-  - .env中加入use_bedrock=0
+这个基于Strands Agents SDK开发的通用型Agengtic AI应用，通过MCP的集成，实现了大语言模型与外部工具系统的无缝连接。Strands SDK作为核心引擎，提供了强大的代理能力和工具集成机制，使得整个系统具备了高度的可扩展性和实用性。
 
-- Demo Vides
-![alt text](assets/demo_videos.png)
+### 1.1 功能特点
+- **前后端分离**MCP Client和MCP Server均可以部署到服务器端，用户可以直接使用web浏览器通过后端web服务交互，从而访问LLM和MCP Sever能力和资源
+- **React UI**基于React的用户界面，允许用户与模型交互并管理MCP服务器，显示工具调用结果和思考过程
+- **MCP 工具集成** - 提供STDIO, StreamableHTTP, SSE模式的MCP集成
+- **多模型提供商** - 支持 Bedrock、OpenAI及兼容模型
+- **多用户会话管理** - 维护多用户session
 
-> ChatBot 是大模型时代最常见的应用形态，但受限于大模型无法获取及时信息、无法操作外部系统等，使得 ChatBot 应用场景相对有限。后来随着 Function Calling/Tool Use 功能推出，大模型能够跟外部系统交互，但弊端在于大模型业务逻辑和 Tool 开发都是紧密耦合的，无法发挥出 Tool 端规模化的效率。Anthropic 2024 年 11 月底推出 [MCP](https://www.anthropic.com/news/model-context-protocol) 打破了这一局面，引入整个社区的力量在 Tool 端规模化发力，目前已经有开源社区、各路厂商等开发了丰富的 [MCP server](https://github.com/modelcontextprotocol/servers)，使得 Tool 端蓬勃发展。终端用户即插即用就可将其集成到自己的 ChatBot 中，极大延展了 ChatBot UI 的能力，有种 ChatBot 一统各种系统 UI 的趋势。
-- MCP 如何工作  
-![alt text](assets/mcp_how.png)  
+### 1.2 技术特色与优势
+#### 架构优势
+- 模块化设计 : 清晰的分层架构，各组件职责明确
+- 可扩展性 : 支持多种模型提供商和MCP协议
+- 高并发 : 异步处理和流式响应支持
+- 资源管理 : 完善的会话和连接生命周期管理
 
-- 基于AWS的MCP企业架构设计思路  
-![alt text](assets/image-aws-arch.png) 
+#### MCP集成优势
+- 标准兼容 : 完全兼容Anthropic MCP标准
+- 多协议支持 : 支持Stdio、SSE、StreamableHTTP等多种传输协议
+- 动态管理 : 支持运行时动态添加和移除MCP服务器
+- 工具缓存 : 智能的工具获取和缓存机制
 
-- 本项目提供基于 **Bedrock** 中Nova,Claude等大模型的 ChatBot 交互服务，同时引入 **MCP**，极大增强并延伸 ChatBot 形态产品的应用场景，可支持本地文件系统、数据库、开发工具、互联网检索等无缝接入。如果说包含大模型的 ChatBot 相当于大脑的话，那引入 MCP 后就相当于装上了胳膊腿，真正让大模型动起来、跟各种现存系统和数据联通。  
+#### Strands SDK优势
+- 统一接口 : 为不同模型提供商提供统一的代理接口
+- 智能对话管理 : 内置滑动窗口对话管理器
+- 工具集成 : 原生支持MCP工具集成
+- 可观测性 : 集成Langfuse等可观测性工具
 
-- **本Demo方案架构**
-![arch](assets/arch.png)
-
-- **Deepwiki** 
-
-https://deepwiki.com/aws-samples/demo_mcp_on_amazon_bedrock/1.1-system-architecture
-
-- **核心组件**
-![alt text](assets/core_comp.png)   
-   1. MCP客户端(mcp_client.py)
-      - 负责管理与多个MCP服务器的连接
-      - 处理工具调用和资源访问
-      - 提供工具名称映射和规范化功能
-   2. 聊天客户端(chat_client.py,chat_client_stream.py)
-      - 与Amazon Bedrock API交互
-      - 处理用户查询和模型响应
-      - 支持流式响应和工具调用
-   3. 主服务(main.py)
-      - 提供FastAPI服务,暴露聊天和MCP管理API
-      - 管理用户会话和MCP服务器配置
-      - 处理并发请求和资源清理
-   4. Frontend(React UI)
-      - 基于React的用户界面
-      - 允许用户与模型交互并管理MCP服务器
-      - 显示工具调用结果和思考过程
-
-- **技术架构**
-   1. 前后端分离
-      - 后端:FastAPI服务提供RESTAPI
-      - 前端:Streamlit Web界面
-   2. 多用户支持
-      - 用户会话隔离
-      - 支持并发访问
-   3. MCP服务器管理
-      - 支持动态添加和移除MCP服务器
-      - 全局和用户特定的MCP服务器配置
-
-- **工作流程**
-![alt text](assets/image_process1.png)  
-   1. 用户通过Web界面发送查询
-   2. 后端服务接收查询并转发给Bedrock模型
-   3. 如果模型需要使用工具,MCP客户端会调用相应的MCP服务器
-   4. 工具调用结果返回给模型,模型生成最终响应
-   5. 响应返回给用户,包括工具调用过程和结果
-
-- 该项目目前仍在不断探索完善，MCP 正在整个社区蓬勃发展，欢迎大家一起关注！
-
-## 1. 项目特点：
-   - 同时支持Amazon Nova 和Claude Sonnet模型, 以及其他OPENAI接口兼容的模型
-   - 与Anthropic官方MCP标准完全兼容，可以采用同样的方式，直接使用社区的各种[MCP servers](https://github.com/modelcontextprotocol/servers/tree/main)
-   - 将MCP能力和客户端的解耦，MCP能力封装在服务端，对外提供API服务，且chat接口兼容openai，方便接入其他chat客户端
-   - 前后端分离，MCP Client和MCP Server均可以部署到服务器端，用户可以直接使用web浏览器通过后端web服务交互，从而访问LLM和MCP Sever能力和资源  
-   - 支持多用户，用户session隔离，支持并发访问。
-   - 流式响应
-   - 思考过程可视化
-   - 工具调用结果展示和Computer Use截图展示
+#### 应用场景
+1. 企业知识助手 : 集成企业内部系统和知识库
+2. DeepResearch  : 连接搜索，知识库等工具
+3. 数据分析助手 : 连接数据库、BI工具进行智能数据分析
+4. 办公自动化 : 集成日历、邮件、文档系统等办公工具
+5. 客户服务 : 连接CRM、工单系统提供智能客服
 
 
-## 2. 安装步骤
+### 1.3 系统架构图
+![system](assets/system_diag.png)
+
+### 1.4 系统流程图
+![flow](assets/sequenceflow.png)
+
+
+## 2.安装方法（开发模式）
 ### 2.1. 依赖安装
 
 目前主流 MCP Server 基于 NodeJS 或者 Python 开发实现并运行于用户 PC 上，因此用户 PC 需要安装这些依赖。
@@ -118,7 +60,7 @@ NodeJS [下载安装](https://nodejs.org/en)，本项目已对 `v22.12.0` 版本
 
 有些 MCP Server 基于 Python 开发，因此用户必须安装 [Python](https://www.python.org/downloads/)。此外本项目代码也基于 Python 开发，需要安装环境和依赖。
 
-首先，安装 Python 包管理工具 uv，具体可参考 [uv](https://docs.astral.sh/uv/getting-started/installation/) 官方指南，本项目已对 `v0.5.11` 版本充分测试。
+首先，安装 Python 包管理工具 uv，具体可参考 [uv](https://docs.astral.sh/uv/getting-started/installation/) 官方指南
 
 ### 2.3 环境配置
 下载克隆该项目后，进入项目目录创建 Python 虚拟环境并安装依赖：
@@ -126,27 +68,27 @@ NodeJS [下载安装](https://nodejs.org/en)，本项目已对 `v22.12.0` 版本
 uv sync
 ```
 
-此时项目目录的 `.venv` 中就创建好了虚拟环境,激活
-```
-source .venv/bin/activate
+### 2.4 环境变量设置
+把env.example 改成.env,根据情况修改以下变量：
+
+- 如果在海外区使用Bedrock（默认）
+```bash
+CLIENT_TYPE=strands
+STRANDS_MODEL_PROVIDER=bedrock
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_REGION=us-east-1
 ```
 
-- （可选）使用aws cli工具创建一个dynamodb table用于保存user config信息，如果不创建dynamodb，则直接生成user_mcp_config.json保存在conf/目录下
+- 如果使用硅基流动等openai兼容接口模型
 ```bash
-aws dynamodb create-table \
-    --table-name mcp_user_config_table \
-    --attribute-definitions AttributeName=userId,AttributeType=S \
-    --key-schema AttributeName=userId,KeyType=HASH \
-    --billing-mode PAY_PER_REQUEST 
+CLIENT_TYPE=strands
+STRANDS_MODEL_PROVIDER=openai
+STRANDS_API_KEY=your_openai_api_key
+STRANDS_API_BASE=https://api.siliconflow.cn
 ```
-### 2.4 配置编辑
-复制env.strands.example 到.env,并修改里面的model provider配置
-```bash
-cp env.strands.example .env
-```
-如果使用bedrock， 则填入AK，SK,region信息，如果是其他openai兼容模型，例如deepseek等，则使用openai provider，并填入对应的api key和url  
 
-默认配置支持`DeepSeek-V3`,`Qwen3`等模型, 如果需要支持其他模型（必须是支持tool use的模型），请自行修改[conf/config.json](conf/config.json)配置加入模型，例如：
+- 默认配置支持`DeepSeek-R1`,`Qwen3`等模型, 如果需要支持其他模型（必须是支持tool use的模型），请自行修改[conf/config.json](conf/config.json)配置加入模型，例如：
 
 ```json
   {
@@ -158,8 +100,8 @@ cp env.strands.example .env
     "model_name": "Qwen3-30B-A3B"
   },
   {
-    "model_id": "Pro/deepseek-ai/DeepSeek-V3",
-    "model_name": "DeepSeek-V3-Pro"
+    "model_id": "Pro/deepseek-ai/DeepSeek-R1",
+    "model_name": "DeepSeek-R1-Pro"
   },
   {
     "model_id": "deepseek-ai/DeepSeek-V3",
@@ -167,272 +109,88 @@ cp env.strands.example .env
   }
 ```
 
+### 2.4 启动后端服务
 
-## 3. 运行
-
-### 3.1 该项目包含1个后端服务和一个React UI前端， 前后端通过rest api对接：
-- **Chat 接口服务（Bedrock+MCP）**，可对外提供 Chat 接口、同时托管多个 MCP server、支持历史多轮对话输入、响应内容附加了工具调用中间结果、暂不支持流式响应
-- **Web UI**，跟上述 Chat 接口服务通信，提供多轮对话、管理 MCP 的 Web UI 演示服务
-
-### 3.2 Chat 接口服务（Bedrock+MCP）
-- 接口服务可以对外提供给独立API，接入其他chat客户端, 实现服务端MCP能力和客户端的解耦
-- 可以通过http://{ip}:7002/docs#/查看接口文档.
-![alt text](./assets/image_api.png)
-
-- 编辑配置文件 `conf/config.json`，该文件预设了要启动哪些 MCP server，可以编辑来添加或者修改 MCP server 参数。
-- 每个 MCP server 的参数规范，可参考如下示例： 
-```
-"db_sqlite": {
-    "command": "uvx",
-    "args": ["mcp-server-sqlite", "--db-path", "./tmp/test.db"],
-    "env": {},
-    "description": "DB Sqlite CRUD - MCP Server",
-    "status": 1
-}
-```
-
-- 启动服务：
+- 启动后端服务：
 ```bash
 bash start_all.sh
 ```
 
-- 停止服务:
+### 2.5 前端
+**前提条件**
+- 安装Docker和Docker Compose：https://docs.docker.com/get-docker/
+- Linux下安装Docker命令：
 ```bash
-bash stop_all.sh
+# 安装Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# 安装Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.6/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+ln -s /usr/bin/docker-compose  /usr/local/bin/docker-compose
 ```
-
-- 待启动后，可查看日志 `logs/start_mcp.log` 确认无报错
-
-- curl 明亮参考
+1. 克隆仓库之后
 ```bash
-# 默认使用123456作为API key, 请根据实际设置更改
-curl http://127.0.0.1:7002/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer 123456" \
-  -H "X-User-ID: user123" \
-  -d '{
-    "model": "",
-    "mcp_server_ids":["local_fs"],
-    "stream":true,
-    "keep_session":true,
-    "messages": [
-      {
-        "role": "user",
-        "content": "list files in current dir"
-      }
-    ]
-  }'
+cd demo_mcp_on_amazon_bedrock/react_ui
 ```
 
-### 3.3 Web UI 
-* 之前的streamlit UI 已经deprecated
-现在启用新版React UI
-- 🚀 基于Next.js 15和React 18构建的现代化前端，支持Dark/Light模式
-- 🎨 使用Tailwind CSS和Shadcn UI组件库实现美观的用户界面
-- 🔄 实时流式响应，提供流畅的对话体验
-- 🧠 支持"思考"模式，展示模型的推理过程
-- 🛠️ MCP服务器管理功能，支持添加和配置服务器
-- 👤 用户会话管理，保持对话上下文
-- 📊 可视化工具使用结果，包括图像显示
-- 📱 支持多模态输入，包括图片，pdf，文档等附件上传
-- [安装步骤](react_ui/README.md)
-![alt text](react_ui/image.png)
-![alt text](react_ui/image-1.png)
-
-
-### 3.4. 添加 MCP Server
-当前可以通过两种方式来添加 MCP Server：
-1. 预置在 `conf/config.json`，每次重新启动 Chat 接口服务就会加载配置好的 MCP Server 
-2. 通过 ChatBot UI 来添加 MCP Server，表单提交 MCP Server 参数即可，仅当前生效、服务重启后失效  
-下面演示如何通过 ChatBot UI 添加 MCP Server，这里以 Web Search 供应商 [Exa](https://exa.ai/) 为例，开源社区已有针对它的 [MCP Server](https://github.com/exa-labs/exa-mcp-server) 可用。  
-首先，前往 [Exa](https://exa.ai/) 官网注册账号，并获取 API Key。  
-然后点击【添加 MCP Server】，在弹出菜单中填写如下参数并提交即可：  
-- 方式1，直接添加MCP json 配置文件(与Anthropic官方格式相同)   
-```json
-{
-  "mcpServers": {
-    "exa": {
-      "command": "npx",
-      "args": ["-y","exa-mcp-server"],
-      "env": {
-        "EXA_API_KEY": "your-api-key-here"
-      }
-    }
-  }
-}
-```
-- 方式2，按字段添加 
-
-此时在已有 MCP Server 列表中就可以看到新添加项，勾选即可启动该 MCP Server。
-
-## 4. CDK安装（新增）
-[README](cdk/README.me)
-
-## 5 Demo cases
-### 5.1.使用MCP操作Browser浏览器 
-- 在chatbot界面上添加这个json文件,注意：这个[browser use](https://github.com/vinayak-mehta/mcp-browser-use)server默认启动有头模式的浏览器，因此适合在本地电脑部署的demo中，如果在服务器端部署，请在提示词里加一句`use headless is true to initialize the browser`
-**注意** 第一次运行时，需要在服务安装对应的依赖包 `sudo apt-get install libgbm1`  
-```json
-{ "mcpServers": 
-	{ "mcp-browser": 
-		{ "command": "uvx", 
-        "args": ["mcp-browser-use"],
-        "env": {},
-        "description": "mcp-browser"
-		} 
-	} 
-}
-```  
-
-- **New added 20250331** 使用MS官方[playwright](https://mcp.so/server/playwright-mcp/microsoft):   
-**注意** 如果需要无头模式则添加"--headless"参数，第一次运行时，需要在服务安装对应的依赖包 `npx playwright install chrome`  
-```json
-{
-  "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": [
-        "@playwright/mcp@latest",
-        "--headless"
-      ]
-    }
-  }
-}
-```
-
-- test 1, 在chatbot界面中，勾选mcp-browser和local file system 2个server  
-输入任务：`帮我整理一份关于小米SU7 ultra的介绍，包括性能，价格，特色功能，图文并茂，并制作成精美的HTML保存到本地目录中.如果引用了其他网站的图片，确保图片真实存在，并且可以访问。`  
-[视频demo](https://mp.weixin.qq.com/s/csg7N8SHoIR2WBgFOjpm6A)  
-[最终输出文件示例](docs/xiaomi_su7_ultra_intro.html)  
-  - 如果第一次运行可能需要额外安装一些软件，请跟进tool call 返回的信息提示安装即可  
-
-- test 2, 在chatbot界面中，勾选exa,mcp-browser和local file system 3个server, 会结合搜索引擎，浏览器共同获取信息和图片，形成更丰富的报告
-输入任务：`我想要一份特斯拉股票的全面分析，包括：概述：公司概况、关键指标、业绩数据和投资建议财务数据：收入趋势、利润率、资产负债表和现金流分析市场情绪：分析师评级、情绪指标和新闻影响技术分析：价格趋势、技术指标和支撑/阻力水平资产比较：市场份额和与主要竞争对手的财务指标对比价值投资者：内在价值、增长潜力和风险因素投资论点：SWOT 分析和针对不同类型投资者的建议。 并制作成精美的HTML保存到本地目录中。如果引用了其他网站的图片，确保图片真实存在，并且可以访问。 你可以使用mcp-browser和exa search去获取尽可能丰富的实时数据和图片。`   
-[最终输出文件示例](docs/tesla_stock_analysis.html)  
-
-- **时序图1:使用Headless Browser 的 MCP Server**
-![alt text](assets/image-seq2.png)  
-
-### 5.2 使用MCP Computer Use 操作 EC2 remote desktop
-- 在另外一个目录中安装下载remote-computer-use
+2. 创建环境变量文件
 ```bash
-git clone https://github.com/aws-samples/aws-mcp-servers-samples.git
-```
-- 需要提前安装一台EC2实例，并配置VNC远程桌面。安装步骤请参考[说明](https://github.com/aws-samples/aws-mcp-servers-samples/blob/main/remote_computer_use/README.md)
-- 环境配置好之后，在MCP demo客户端配置如下：
-```json
-{
-    "mcpServers": {
-        "computer_use": {
-            "command": "uv",
-            "env": {
-                "VNC_HOST":"",
-                "VNC_PORT":"5901",
-                "VNC_USERNAME":"ubuntu",
-                "VNC_PASSWORD":"",
-                "PEM_FILE":"",
-                "SSH_PORT":"22",
-                "DISPLAY_NUM":"1"
-            },
-            "args": [
-                "--directory",
-                "/absolute_path_to/remote_computer_use",
-                "run",
-                "server_claude.py"
-            ]
-        }
-    }
-}
-```
-- 使用Computer Use推荐用Claude 3.7模型，并添加如下system prompt  
-
-```plaintext
-You are an expert research assistant with deep analytical skills.
-you have capability:
-<SYSTEM_CAPABILITY>
-* You are utilising an Ubuntu virtual machine using Linux architecture with internet access.
-* You can feel free to install Ubuntu applications with your bash tool. Use curl instead of wget.
-* When viewing a page it can be helpful to zoom out so that you can see everything on the page.  Either that, or make sure you scroll down to see everything before deciding something isn't available.
-* When using your computer function calls, they take a while to run and send back to you.  Where possible/feasible, try to chain multiple of these calls all into one function calls request.
-* You can double click to open firefox
-</SYSTEM_CAPABILITY>
-<IMPORTANT>
-  * Don't assume an application's coordinates are on the screen unless you saw the screenshot. To open an application, please take screenshot first and then find out the coordinates of the application icon. 
-  * When using Firefox, if a startup wizard or Firefox Privacy Notice appears, IGNORE IT.  Do not even click "skip this step".  Instead, click on the address bar where it says "Search or enter address", and enter the appropriate search term or URL there. Maximize the Firefox browser window to get wider vision.
-  * If the item you are looking at is a pdf, if after taking a single screenshot of the pdf it seems that you want to read the entire document instead of trying to continue to read the pdf from your screenshots + navigation, determine the URL, use curl to download the pdf, install and use pdftotext to convert it to a text file, and then read that text file directly with your StrReplaceEditTool.
-  * After each step, take a screenshot and carefully evaluate if you have achieved the right outcome. Explicitly show your thinking: "I have evaluated step X..." If not correct, try again. Only when you confirm a step was executed correctly should you move on to the next one.
-</IMPORTANT>
-```   
-
-- **时序图:使用Computer Use 操作 EC2 Remote Desktop**  
-![alt text](assets/image-seq3.png)
-
-
-### 5.3.使用Sequential Thinking + Search 做 Deep Research (主要针对Nova/Claude 3.5模型, Claude 3.7不需要)
-- 同时启用 websearch(参考上面的EXA配置)和 [Sequential Thinking MCP Server](https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking)，目前已经预置了Sequential Thinking MCP Server在配置文件中, 启动后可以看到server名称是cot。  
-![alt text](assets/image-serverlist.png)
-- Sequential Thinking提供通过动态的结构化思维过程和反思，通过工具调用的促使模型按工具输入的要求进行结构化输出推理链条。
-- EXA Search 同时提供关键词和向量检索搜索网络知识，并返回页面的上的详细内容。
-- 测试问题
-```
-1. use search tool and sequential thinking to make comparison report between different agents frameworks such as autogen, langgraph, aws multi agents orchestrator
-2. use sequential thinking and search tool to make me a travel plan to visit shanghai between 3/1/2025 to 3/5/2025. I will departure from Beijing
-3. use sequential thinking to research what the key breakthroughs and future impact of deepseek r1
-4. 搜索对比火山引擎，阿里百炼，硅基流动上的对外提供的deepseek r1 满血版的API 性能对比, 包括推理速度，TTFT， 最大context长度等。使用sequential thinking 工具
-```
-- 效果一览
-![alt text](assets/image_deepresearch_1.png)
-![alt text](assets/image_deepresearch_2.png)
-
-- **时序图:使用Search API 的 MCP Server**  
-![alt text](assets/image-seq1.png)  
-
-###  5.3. 使用Amazon Knowledge Base
-先在Bedrock console中创建或者使用已有的Bedrock，记下Knowledge Base Id  
-Clone [AWS Knowledge Base Retrieval MCP Server](https://github.com/modelcontextprotocol/servers)到本地，并用[assets/aws-kb-retrieval-server/index.ts)](assets/aws-kb-retrieval-server/index.ts)下的文件替换 `src/aws-kb-retrieval-server/index.ts`里的文件。  
-> 新文件把knowledgeBaseId通过环境变量指定，无须再通过对话传入。  
-
-在新clone的servers目录下用如下命令打包  
-```sh
-docker build -t mcp/aws-kb-retrieval:latest -f src/aws-kb-retrieval-server/Dockerfile . 
+cp .env.example .env.local
 ```
 
-然后在chatbot界面上添加这个json文件，注意env中的字段需要替换成自己的账号信息，以及Knowledge Base Id   
-```json
-{
-  "mcpServers": {
-    "aws-kb-retrieval": {
-      "command": "docker",
-      "args": [ "run", "-i", "--rm", "-e", "AWS_ACCESS_KEY_ID", "-e", "AWS_SECRET_ACCESS_KEY", "-e", "AWS_REGION", "-e", "knowledgeBaseId", "mcp/aws-kb-retrieval:latest" ],
-      "env": {
-        "AWS_ACCESS_KEY_ID": "YOUR_ACCESS_KEY_HERE",
-        "AWS_SECRET_ACCESS_KEY": "YOUR_SECRET_ACCESS_KEY_HERE",
-        "AWS_REGION": "YOUR_AWS_REGION_HERE",
-        "knowledgeBaseId":"The knowledage base id"
-      }
-    }
-  }
-}
+3. 使用Docker Compose构建并启动服务
+```bash
+docker-compose up -d --build
 ```
 
-## 6. 语音Agent + MCP
-- ⚠️ 如果在ec2部署，需要使用[HTTPS方式部署](HTTPS_SETUP.md)，如果在本地则沿用之前的部署方式.
-- 点击小话筒，可以体验端到端语音Agent模式，在该模式下，使用的是[Nova Sonic Speech 2 Speech模型](https://docs.aws.amazon.com/nova/latest/userguide/speech.html)，目前仅支持英文对话和三种音色输出。
-Nova Sonic模型支持Function call，所以也能添加MCP server，例如，开启tavily search 和 time mcp server之后，语音输出问“what is the weather of beijing”。可以看到Nova Sonic模型会监听话筒，并直接在输出语音回复，并同时把语音输入和输出转成文字显示到对话框中  
-![alt text](assets/sonic_1.png)
-- 实时语音流程  
-![alt text](assets/voice_flow.png)
+#### 其他Docker常用命令
+```bash
+# 查看容器日志
+docker logs -f mcp-bedrock-ui
 
-## 7. Awsome MCPs
-- AWS MCP Servers Samples https://github.com/aws-samples/aws-mcp-servers-samples
-- AWS Labs MCP Servers https://awslabs.github.io/mcp
-- https://github.com/punkpeye/awesome-mcp-servers
-- https://github.com/modelcontextprotocol/servers
-- https://www.aimcp.info/en
-- https://github.com/cline/mcp-marketplace
-- https://github.com/xiehust/sample-mcp-servers
-- https://mcp.composio.dev/
-- https://smithery.ai/
-- https://mcp.so/
+# 重启容器
+docker-compose restart
 
-## 9. [LICENSE](./LICENSE)
+# 停止容器
+docker-compose down
+
+# 重新构建并启动（代码更新后）
+docker-compose up -d --build
+```
+
+## 3.安装方法（生产模式，AWS ECS部署）
+请参考 [CDK部署说明](cdk/README-CDK.md)
+![img](assets/ecs_fargate_architecture.png)
+ 这个Demo的部署架构遵循AWS最佳实践，将应用程序部署在私有子网中，通过负载均衡器提供公共访问，并使用Fargate实现无服务器容器管理。 这个部署架构包含以下主要亚马逊云组件：
+1. ECS Cluster：
+ • 运行在Fargate上的无服务器容器环境, 使用ARM架构
+ • 前端服务：最小2个任务，根据CPU使用率自动扩展
+ • 后端服务：最小2个任务，根据CPU使用率自动扩展
+
+2.  VPC ：
+ • 包含公有子网和私有子网，跨越2个可用区
+ • 公有子网中有Internet Gateway和NAT Gateway
+ • 私有子网用于运行ECS任务
+
+3. 应用负载均衡：
+ • 应用负载均衡器(ALB)分发流量
+ • 将/v1/*和/api/*路径的请求路由到后端服务
+ • 将其他请求路由到前端服务
+
+4. 数据存储：
+ • DynamoDB表用于存储用户配置
+
+5. 安全组件：
+ • IAM角色和策略控制访问权限
+ • Secrets Manager生成并存储后端服务API KEY配置信息
+ • 安全组控制网络流量
+
+6. 容器镜像：
+ • 前端和后端容器镜像存储在ECR中
+
+
+
+## 4.更多示例
+- [case](./README_cases.md)

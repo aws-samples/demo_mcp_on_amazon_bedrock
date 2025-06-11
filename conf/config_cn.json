@@ -10,7 +10,7 @@
 		},
 		{
 			"model_id": "deepseek-ai/DeepSeek-R1/wvvkzheh2i",
-			"model_name": "DeepSeek-R1-New"
+			"model_name": "DeepSeek-R1-test"
 		},
 		{
 			"model_id": "Pro/deepseek-ai/DeepSeek-R1",
@@ -56,16 +56,7 @@
 			"env": {},
 			"description": "Local File System I/O",
 			"status": 1
-		},
-			"s3-upload": {
-		"command": "uv",
-		"args": [
-		"--directory", "/app/aws-mcp-servers-samples/s3_upload_server",
-		"run", "src/server.py"
-		],
-		"env": {
-			}
-	}
+		}
 
 	}
 }

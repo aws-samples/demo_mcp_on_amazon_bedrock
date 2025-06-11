@@ -47,10 +47,10 @@ logger = logging.getLogger(__name__)
 class StrandsAgentClient(ChatClient):
     """Strands Agents SDK based chat wrapper"""
 
-    def __init__(self, credential_file='', access_key_id='', secret_access_key='', region='', 
+    def __init__(self, credential_file='',user_id='', access_key_id='', secret_access_key='', region='', 
                  model_provider='bedrock', api_key='', api_base=None):
         # Initialize the parent ChatClient
-        super().__init__(credential_file, access_key_id, secret_access_key, region)
+        super().__init__(credential_file, user_id,access_key_id, secret_access_key, region)
         
         # Initialize Strands Agent
         self.model_provider = model_provider

@@ -39,7 +39,7 @@ export async function getApiKey(): Promise<string> {
 // Helper function to get auth headers
 export const getAuthHeaders = async (userId: string) => {
   const apiKey = await getApiKey()
-  console.log(`apiKey:${apiKey}`)
+  // console.log(`apiKey:${apiKey}`)
   return {
     'Authorization': `Bearer ${apiKey}`,
     'X-User-ID': userId,

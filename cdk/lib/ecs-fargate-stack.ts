@@ -177,7 +177,8 @@ export class EcsFargateStack extends cdk.Stack {
       protocol: elbv2.ApplicationProtocol.HTTP,
       vpc: this.vpc,
       targetType: elbv2.TargetType.IP,
-      stickinessCookieDuration: cdk.Duration.hours(24), // Enable stickiness for 24 hours
+      // Disable stickiness to avoid SameSite cookie issues over HTTP
+      // stickinessCookieDuration: cdk.Duration.hours(24),
       healthCheck: {
         path: '/chat',
         healthyHttpCodes: '200',
@@ -193,7 +194,8 @@ export class EcsFargateStack extends cdk.Stack {
       protocol: elbv2.ApplicationProtocol.HTTP,
       vpc: this.vpc,
       targetType: elbv2.TargetType.IP,
-      stickinessCookieDuration: cdk.Duration.hours(24), // Enable stickiness for 24 hours
+      // Disable stickiness to avoid SameSite cookie issues over HTTP
+      // stickinessCookieDuration: cdk.Duration.hours(24),
       healthCheck: {
         path: '/api/health',
         healthyHttpCodes: '200',
@@ -304,6 +306,14 @@ export class EcsFargateStack extends cdk.Stack {
         'dynamodb:Scan',
       ],
       resources: [userConfigTable.tableArn],
+    }));
+
+    taskRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'sts:GetCallerIdentity'
+      ],
+      resources: ["*"],
     }));
 
     taskRole.addToPolicy(new iam.PolicyStatement({

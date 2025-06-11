@@ -74,7 +74,7 @@ echo "后端 ECR: $BACKEND_ECR"
 echo "========================================="
 echo "步骤 4: 获取 ECS 服务名称"
 echo "========================================="
-cd cdk
+# cd cdk
 
 CLUSTER_NAME="${PREFIX}-cluster"
 

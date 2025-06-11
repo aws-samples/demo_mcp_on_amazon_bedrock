@@ -17,7 +17,7 @@ import threading
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from botocore.exceptions import ClientError
-
+import asyncio
 # Initialize logger
 
 logging.basicConfig(
@@ -32,7 +32,10 @@ dynamodb_client = None
 DDB_TABLE = os.environ.get("ddb_table")  # DynamoDB表名，用于存储用户配置
 user_mcp_server_configs = {}  # 用户特有的MCP服务器配置 user_id -> {server_id: config}
 global_mcp_server_configs = {}  # 全局MCP服务器配置 server_id -> config
-
+# 活跃流式请求的字典，用于跟踪可以停止的请求
+active_streams = {}
+# 使用独立的锁来保护active_streams字典
+active_streams_lock = threading.RLock()
 session_lock = threading.RLock()
 
 def get_secret(secret_name):
@@ -75,7 +78,25 @@ def save_configs_to_json(configs:dict):
     config_file = os.environ.get('USER_MCP_CONFIG_FILE', 'conf/user_mcp_configs.json')
     with open(config_file, 'w') as f:
         json.dump(configs, f, indent=2)
-        
+
+async def save_user_message(user_id: str, data: dict) -> bool:
+    return await save_to_ddb(f"{user_id}_messages",data)
+
+async def get_user_message(user_id: str) ->dict:
+    return await get_from_ddb(f"{user_id}_messages")
+
+async def delete_user_message(user_id: str) ->dict:
+    return await delete_from_ddb(f"{user_id}_messages")
+
+async def save_user_session(user_id: str, data: dict) -> bool:
+    return await save_to_ddb(f"{user_id}_session",data)
+
+async def get_user_session(user_id: str) ->dict:
+    return await get_from_ddb(f"{user_id}_session")
+
+async def delete_user_session(user_id: str) ->dict:
+    return await delete_from_ddb(f"{user_id}_session")
+    
 async def save_to_ddb(user_id: str, data: dict):
     """将用户配置保存到DynamoDB"""
     if not dynamodb_client or not DDB_TABLE:
@@ -132,10 +153,8 @@ async def delete_from_ddb(user_id: str) -> bool:
                 'userId': user_id
             }
         )
-        logger.info(f"从DynamoDB删除用户 {user_id} 配置成功")
         return True
     except Exception as e:
-        logger.error(f"从DynamoDB删除用户 {user_id} 配置失败: {e}")
         return False
 
 async def scan_all_from_ddb() -> dict:
@@ -181,6 +200,42 @@ async def scan_all_from_ddb() -> dict:
         logger.error(f"从DynamoDB扫描用户配置失败: {e}")
         return {}
     
+# Save stream id
+async def save_stream_id(stream_id:str,user_id:str):
+    global active_streams
+    with active_streams_lock:
+        if DDB_TABLE and dynamodb_client:
+            # 获取当前用户的所有配置
+            await save_to_ddb(stream_id, dict(user_id=user_id))
+            active_streams[stream_id]=user_id
+        else:
+            active_streams[stream_id]=user_id
+
+# Get stream id
+async def get_stream_id(stream_id:str):
+    with active_streams_lock:
+        if DDB_TABLE and dynamodb_client:
+            # 尝试从DynamoDB获取
+            ddb_config = await get_from_ddb(stream_id)
+            if ddb_config:
+                return ddb_config.get('user_id')
+            else:
+                return None
+        else:
+            return active_streams.get(stream_id)
+
+# delete stream id
+async def delete_stream_id(stream_id:str):
+    with active_streams_lock:
+        if DDB_TABLE and dynamodb_client:
+            # 尝试从DynamoDB获取
+            await delete_from_ddb(stream_id)
+
+        else:
+            if stream_id in active_streams:
+                active_streams.pop(stream_id, None)
+
+        
 
 # 保存全局MCP服务器配置
 def save_global_server_config( server_id: str, config: dict):

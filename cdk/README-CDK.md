@@ -3,8 +3,33 @@
 使用 AWS CDK (Cloud Development Kit) 部署 MCP 应用到 ECS Fargate 的完整指南。
 
 ## CDK 架构概述
+![img](../assets/ecs_fargate_architecture.png)
+ 这个Demo的部署架构遵循AWS最佳实践，将应用程序部署在私有子网中，通过负载均衡器提供公共访问，并使用Fargate实现无服务器容器管理。 这个部署架构包含以下主要亚马逊云组件：
+1. ECS Cluster：
+ • 运行在Fargate上的无服务器容器环境, 使用ARM架构
+ • 前端服务：最小2个任务，根据CPU使用率自动扩展
+ • 后端服务：最小2个任务，根据CPU使用率自动扩展
 
-CDK 将创建以下 AWS 资源：
+2.  VPC ：
+ • 包含公有子网和私有子网，跨越2个可用区
+ • 公有子网中有Internet Gateway和NAT Gateway
+ • 私有子网用于运行ECS任务
+
+3. 应用负载均衡：
+ • 应用负载均衡器(ALB)分发流量
+ • 将/v1/*和/api/*路径的请求路由到后端服务
+ • 将其他请求路由到前端服务
+
+4. 数据存储：
+ • DynamoDB表用于存储用户配置
+
+5. 安全组件：
+ • IAM角色和策略控制访问权限
+ • Secrets Manager生成并存储后端服务API KEY配置信息
+ • 安全组控制网络流量
+
+6. 容器镜像：
+ • 前端和后端容器镜像存储在ECR中
 
 ### 网络架构
 - **VPC**: 10.0.0.0/16 跨 2 个可用区
@@ -136,193 +161,6 @@ cdk deploy --profile your-profile
 
 # 输出模板到文件
 cdk synth > template.yaml
-```
-
-## 配置管理
-
-### Secrets Manager 更新
-
-部署后，需要更新 Secrets Manager 中的实际值：
-
-```bash
-# 从 .env 文件批量更新
-source .env
-
-# 更新 AWS 凭证
-aws secretsmanager update-secret \
-    --secret-id "mcp-app/aws-credentials" \
-    --secret-string "{\"AccessKeyId\":\"$AWS_ACCESS_KEY_ID\",\"SecretAccessKey\":\"$AWS_SECRET_ACCESS_KEY\"}"
-
-# 更新 Strands API Key
-aws secretsmanager update-secret \
-    --secret-id "mcp-app/strands-api-key" \
-    --secret-string "$STRANDS_API_KEY"
-
-# 更新其他密钥...
-```
-
-### 环境变量调整
-
-修改 `cdk/lib/ecs-fargate-stack.ts` 中的 `environment` 配置：
-
-```typescript
-environment: {
-  AWS_REGION: cdk.Stack.of(this).region,
-  STRANDS_MODEL_PROVIDER: 'openai',
-  MAX_TURNS: '200',
-  // 添加或修改其他环境变量
-},
-```
-
-## 监控和运维
-
-### CloudWatch 日志
-
-```bash
-# 查看前端日志
-aws logs describe-log-streams --log-group-name "/ecs/mcp-app-frontend"
-
-# 查看后端日志
-aws logs describe-log-streams --log-group-name "/ecs/mcp-app-backend"
-
-# 实时查看日志
-aws logs tail "/ecs/mcp-app-backend" --follow
-```
-
-### ECS 服务管理
-
-```bash
-# 查看服务状态
-aws ecs describe-services --cluster mcp-app-cluster --services mcp-app-frontend-service mcp-app-backend-service
-
-# 查看任务状态
-aws ecs list-tasks --cluster mcp-app-cluster --service-name mcp-app-backend-service
-
-# 扩缩容服务
-aws ecs update-service --cluster mcp-app-cluster --service mcp-app-backend-service --desired-count 3
-```
-
-### 健康检查
-
-```bash
-# 检查 ALB 目标组健康状态
-ALB_ARN=$(aws elbv2 describe-load-balancers --names mcp-app-alb --query 'LoadBalancers[0].LoadBalancerArn' --output text)
-TARGET_GROUPS=$(aws elbv2 describe-target-groups --load-balancer-arn $ALB_ARN --query 'TargetGroups[].TargetGroupArn' --output text)
-
-for TG in $TARGET_GROUPS; do
-    aws elbv2 describe-target-health --target-group-arn $TG
-done
-```
-
-## 故障排除
-
-### 常见问题
-
-1. **CDK Bootstrap 失败**
-   ```bash
-   # 检查 AWS 权限
-   aws iam get-user
-   
-   # 手动指定区域
-   cdk bootstrap --region us-east-1
-   ```
-
-2. **Docker 构建失败**
-   ```bash
-   # 检查 buildx 支持
-   docker buildx ls
-   
-   # 创建新的 builder
-   docker buildx create --name mybuilder --use
-   ```
-
-3. **ECS 任务启动失败**
-   ```bash
-   # 查看任务详情
-   TASK_ARN=$(aws ecs list-tasks --cluster mcp-app-cluster --service-name mcp-app-backend-service --query 'taskArns[0]' --output text)
-   aws ecs describe-tasks --cluster mcp-app-cluster --tasks $TASK_ARN
-   ```
-
-4. **Secrets Manager 权限错误**
-   ```bash
-   # 检查任务角色权限
-   aws iam get-role-policy --role-name mcp-app-task-execution-role --policy-name SecretsManagerPolicy
-   ```
-
-### 调试命令
-
-```bash
-# 检查 VPC 连接
-aws ec2 describe-vpcs --filters "Name=tag:Name,Values=mcp-app-vpc"
-
-# 检查安全组规则
-aws ec2 describe-security-groups --group-names mcp-app-ecs-sg
-
-# 检查负载均衡器状态
-aws elbv2 describe-load-balancers --names mcp-app-alb
-```
-
-## 成本优化
-
-### ARM64 架构优势
-- 比 x86 便宜约 20%
-- 更好的性能功耗比
-- 原生支持主流运行时
-
-### 资源右尺寸
-```typescript
-// 在 Stack 中调整资源配置
-const frontendTaskDefinition = new ecs.FargateTaskDefinition(this, `${prefix}-frontend-task`, {
-  memoryLimitMiB: 256,  // 减少内存
-  cpu: 128,             // 减少 CPU
-  // ...
-});
-```
-
-### 按需服务
-- DynamoDB 按需计费
-- ECR 镜像生命周期管理
-- CloudWatch 日志保留期设置
-
-## 安全最佳实践
-
-### 网络安全
-- 私有子网部署应用
-- 安全组最小权限
-- VPC 端点减少外网流量
-
-### 访问控制
-- IAM 角色最小权限
-- Secrets Manager 存储敏感数据
-- 定期轮换访问密钥
-
-### 数据保护
-- ECS 任务加密存储
-- ALB HTTPS 终端
-- DynamoDB 加密静态数据
-
-## 扩展和定制
-
-### 添加新服务
-在 `ecs-fargate-stack.ts` 中添加新的 ECS 服务定义。
-
-### 自定义域名
-配置 Route53 和 ACM 证书：
-
-```typescript
-// 在 Stack 中添加
-const certificate = new acm.Certificate(this, 'Certificate', {
-  domainName: 'your-domain.com',
-  validation: acm.CertificateValidation.fromDns(),
-});
-
-// 修改 ALB 监听器
-const httpsListener = this.alb.addListener(`${prefix}-https-listener`, {
-  port: 443,
-  protocol: elbv2.ApplicationProtocol.HTTPS,
-  certificates: [certificate],
-  defaultTargetGroups: [frontendTargetGroup],
-});
 ```
 
 ### 多环境部署

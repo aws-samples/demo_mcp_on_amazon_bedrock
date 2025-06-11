@@ -1,5 +1,6 @@
 # Backend Dockerfile for FastAPI application - ARM64 optimized
-FROM --platform=linux/arm64 python:3.12-slim
+FROM --platform=linux/arm64 python:3.12-slim-bookworm
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Set working directory
 WORKDIR /app
@@ -15,6 +16,7 @@ RUN apt-get update && apt-get install -y \
 
 # Add build argument for China region support
 ARG USE_CHINA_MIRROR=false
+ARG PIP_INDEX_URL=https://pypi.org/simple
 
 # Configure pip mirrors for China region if needed
 RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
@@ -24,19 +26,30 @@ RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
         pip config set global.trusted-host mirrors.tuna.tsinghua.edu.cn; \
     fi
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV UV_DEFAULT_INDEX=$PIP_INDEX_URL
+ENV UV_PYTHON_INSTALL_MIRROR=$PIP_INDEX_URL
 # Copy requirements
 COPY pyproject.toml ./
+COPY uv.lock ./
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -e .
+# RUN uv sync 
+# RUN . .venv/bin/activate 
 
 # forkrepo，支持r1 reasoning content
 RUN pip install git+https://github.com/xiehust/sdk-python.git
+
+RUN git clone https://github.com/BochaAI/bocha-search-mcp.git
 # RUN pip install git+https://ghproxy.cn/https://github.com/xiehust/sdk-python.git
 # download mcp repo 
-RUN git clone https://github.com/aws-samples/aws-mcp-servers-samples
+RUN git clone https://github.com/aws-samples/aws-mcp-servers-samples -b main
 # RUN git clone https://ghproxy.cn/https://github.com/aws-samples/aws-mcp-servers-samples
+
+# 修改默认超时为120s
+RUN \
+export PYTHON_SITEPACKAGES=`python3 -c "import site; print(site.getsitepackages()[0])"`; \
+sed -i 's/\(self\._init_future\.result(timeout=\)30/\1120/g' ${PYTHON_SITEPACKAGES}/strands/tools/mcp/mcp_client.py
 
 
 # Copy source code

@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 class StrandsAgentClientStream(StrandsAgentClient):
     """Extended Strands Agent Client with streaming support"""
     
-    def __init__(self, credential_file='', model_provider='bedrock', api_key='', api_base=None, 
+    def __init__(self, credential_file='', user_id='',model_provider='bedrock', api_key='', api_base=None, 
                  access_key_id='', secret_access_key='', region=''):
-        super().__init__(credential_file, access_key_id, secret_access_key, region, 
+        super().__init__(credential_file, user_id,access_key_id, secret_access_key, region, 
                         model_provider, api_key, api_base)
         # Stream-specific properties
         self.stop_flags = {}  # Dict to track stop flags for streams
@@ -126,10 +126,12 @@ class StrandsAgentClientStream(StrandsAgentClient):
         # must be kept with Strands
         keep_session = True
         if keep_session:
-            messages = self.messages + messages
-            system = self.system if self.system else system
+            history = await self.load_history()
+            if history:
+                messages = history + messages 
+            system = self.system if self.system else system #system 消息每次都会传入
         else:
-            self.clear_history()
+            await self.clear_history()
             
         logger.info(f'llm input message list length:{len(messages)}')
         

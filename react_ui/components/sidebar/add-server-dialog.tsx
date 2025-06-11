@@ -21,7 +21,7 @@ export default function AddServerDialog({ onClose }: AddServerDialogProps) {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('json');
   
-  const { addMcpServer } = useStore();
+  const { addMcpServer, userId } = useStore(); // 添加 userId
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,7 +105,7 @@ export default function AddServerDialog({ onClose }: AddServerDialogProps) {
       }
       
       const result = await apiAddMcpServer(
-        'anonymous', // userId - you may want to get this from store
+        userId || 'anonymous', // 使用从store获取的userId
         finalServerId,
         serverName,
         finalServerCommand,
