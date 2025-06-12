@@ -84,8 +84,8 @@ AWS_REGION=us-east-1
 ```bash
 CLIENT_TYPE=strands
 STRANDS_MODEL_PROVIDER=openai
-STRANDS_API_KEY=your_openai_api_key
-STRANDS_API_BASE=https://api.siliconflow.cn
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_BASE_URL=https://api.siliconflow.cn
 ```
 
 - 默认配置支持`DeepSeek-R1`,`Qwen3`等模型, 如果需要支持其他模型（必须是支持tool use的模型），请自行修改[conf/config.json](conf/config.json)配置加入模型，例如：

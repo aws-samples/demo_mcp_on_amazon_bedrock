@@ -7,6 +7,9 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as rds from 'aws-cdk-lib/aws-rds';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as customResources from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 
 export interface EcsFargateStackProps extends cdk.StackProps {
@@ -164,6 +167,110 @@ export class EcsFargateStack extends cdk.Stack {
       'Allow HTTPS outbound'
     );
 
+
+    // 2.5. Create Aurora PostgreSQL Serverless with pg_vector
+    // Create DB subnet group for Aurora
+    const dbSubnetGroup = new rds.SubnetGroup(this, `${prefix}-db-subnet-group`, {
+      description: 'Subnet group for Aurora PostgreSQL',
+      vpc: this.vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Create security group for Aurora
+    const auroraSecurityGroup = new ec2.SecurityGroup(this, `${prefix}-aurora-sg`, {
+      vpc: this.vpc,
+      description: 'Security group for Aurora PostgreSQL',
+      allowAllOutbound: false,
+    });
+
+    // Create database credentials secret
+    const dbCredentialsSecret = new secretsmanager.Secret(this, `${prefix}-db-credentials`, {
+      secretName: `${prefix}/db-credentials`,
+      description: 'Aurora PostgreSQL credentials',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: 'postgres' }),
+        generateStringKey: 'password',
+        excludeCharacters: '"@/\\',
+        includeSpace: false,
+        passwordLength: 32,
+      },
+    });
+
+    // Create Aurora PostgreSQL Serverless v2 cluster
+    const auroraCluster = new rds.DatabaseCluster(this, `${prefix}-aurora-cluster`, {
+      engine: rds.DatabaseClusterEngine.auroraPostgres({
+        version: rds.AuroraPostgresEngineVersion.VER_15_4,
+      }),
+      credentials: rds.Credentials.fromSecret(dbCredentialsSecret),
+      defaultDatabaseName: 'mcpapp',
+      vpc: this.vpc,
+      vpcSubnets: {
+        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+      },
+      subnetGroup: dbSubnetGroup,
+      securityGroups: [auroraSecurityGroup],
+      // parameterGroup: dbParameterGroup,
+      serverlessV2MinCapacity: 0.5,
+      serverlessV2MaxCapacity: 4,
+      writer: rds.ClusterInstance.serverlessV2(`${prefix}-writer`, {
+        publiclyAccessible: false,
+      }),
+      readers: [
+        rds.ClusterInstance.serverlessV2(`${prefix}-reader`, {
+          publiclyAccessible: false,
+        }),
+      ],
+      backup: {
+        retention: cdk.Duration.days(7),
+        preferredWindow: '03:00-04:00',
+      },
+      preferredMaintenanceWindow: 'sun:04:00-sun:05:00',
+      deletionProtection: false, // For demo purposes
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // For demo purposes
+    });
+
+    // Create database connection info secret
+    const dbConnectionSecret = new secretsmanager.Secret(this, `${prefix}-db-connection`, {
+      secretName: `${prefix}/db-connection`,
+      description: 'Aurora PostgreSQL connection information',
+      secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
+        host: auroraCluster.clusterEndpoint.hostname,
+        port: auroraCluster.clusterEndpoint.port,
+        database: 'mcpapp',
+        username: 'postgres',
+      })),
+    });
+
+     ecsSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      'Allow HTTPS outbound'
+    );
+
+    // Allow ECS tasks to connect to Aurora PostgreSQL
+    auroraSecurityGroup.addIngressRule(
+      ecsSecurityGroup,
+      ec2.Port.tcp(5432),
+      'Allow ECS tasks to connect to PostgreSQL'
+    );
+
+    // Create Lambda security group for database initialization
+    const lambdaSecurityGroup = new ec2.SecurityGroup(this, `${prefix}-lambda-sg`, {
+      vpc: this.vpc,
+      description: 'Security group for Lambda function to initialize database',
+      allowAllOutbound: true,
+    });
+
+    // Allow Lambda to connect to Aurora PostgreSQL
+    auroraSecurityGroup.addIngressRule(
+      lambdaSecurityGroup,
+      ec2.Port.tcp(5432),
+      'Allow Lambda to connect to PostgreSQL for initialization'
+    );
+
     // 6. Create Application Load Balancer
     this.alb = new elbv2.ApplicationLoadBalancer(this, `${prefix}-alb`, {
       vpc: this.vpc,
@@ -272,6 +379,8 @@ export class EcsFargateStack extends cdk.Stack {
         langfuseSecretKeySecret.secretArn,
         langfuseHostSecret.secretArn,
         ddbTableNameSecret.secretArn,
+        dbCredentialsSecret.secretArn,
+        dbConnectionSecret.secretArn,
       ],
     }));
 
@@ -330,6 +439,8 @@ export class EcsFargateStack extends cdk.Stack {
         langfuseSecretKeySecret.secretArn,
         langfuseHostSecret.secretArn,
         ddbTableNameSecret.secretArn,
+        dbCredentialsSecret.secretArn,
+        dbConnectionSecret.secretArn,
       ],
     }));
 
@@ -391,7 +502,7 @@ export class EcsFargateStack extends cdk.Stack {
         
       },
       secrets: {
-        NEXT_PUBLIC_API_KEY: ecs.Secret.fromSecretsManager(apiKeySecret)
+        NEXT_PUBLIC_API_KEY: ecs.Secret.fromSecretsManager(apiKeySecret,'api_key')
       },
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'ecs',
@@ -440,13 +551,24 @@ export class EcsFargateStack extends cdk.Stack {
         LANGFUSE_HOST:process.env.LANGFUSE_HOST||'',
         AWS_ACCESS_KEY_ID:process.env.AWS_ACCESS_KEY_ID || "",
         AWS_SECRET_ACCESS_KEY:process.env.AWS_SECRET_ACCESS_KEY || "",
-        STRANDS_API_KEY:process.env.STRANDS_API_KEY || "",
-        STRANDS_API_BASE:process.env.STRANDS_API_BASE || "",
+        OPENAI_BASE_URL:process.env.OPENAI_BASE_URL ||"",
+        OPENAI_API_KEY:process.env.OPENAI_API_KEY||"",
         LANGFUSE_PUBLIC_KEY:process.env.LANGFUSE_PUBLIC_KEY || "",
         LANGFUSE_SECRET_KEY:process.env.LANGFUSE_SECRET_KEY || "",
+        // Mem0 configuration
+        POSTGRESQL_HOST: auroraCluster.clusterEndpoint.hostname,
+        POSTGRESQL_PORT: auroraCluster.clusterEndpoint.port.toString(),
+        DB_NAME: 'mcpapp',
+        BYPASS_TOOL_CONSENT:'true',
+        LLM_MODEL:process.env.LLM_MODEL||"Qwen/Qwen3-14B",
+        EMBEDDING_MODEL:process.env.EMBEDDING_MODEL ||"Pro/BAAI/bge-m3"
+
       },
       secrets: {
-        API_KEY: ecs.Secret.fromSecretsManager(apiKeySecret),
+        API_KEY: ecs.Secret.fromSecretsManager(apiKeySecret,'api_key'),
+        // Database credentials
+        POSTGRESQL_USER: ecs.Secret.fromSecretsManager(dbCredentialsSecret,'username'),
+        POSTGRESQL_PASSWORD: ecs.Secret.fromSecretsManager(dbCredentialsSecret,'password'),
         // AWS_ACCESS_KEY_ID: ecs.Secret.fromSecretsManager(awsCredentialsSecret, 'AccessKeyId'),
         // AWS_SECRET_ACCESS_KEY: ecs.Secret.fromSecretsManager(awsCredentialsSecret, 'SecretAccessKey'),
         // STRANDS_API_KEY: ecs.Secret.fromSecretsManager(strandsApiKeySecret),
@@ -570,6 +692,20 @@ export class EcsFargateStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'SecretsManagerPrefix', {
       value: `${prefix}/`,
       description: 'Secrets Manager secrets prefix',
+    });
+     new cdk.CfnOutput(this, 'AuroraClusterEndpoint', {
+      value: auroraCluster.clusterEndpoint.hostname,
+      description: 'Aurora PostgreSQL cluster endpoint',
+    });
+
+    new cdk.CfnOutput(this, 'AuroraClusterPort', {
+      value: auroraCluster.clusterEndpoint.port.toString(),
+      description: 'Aurora PostgreSQL cluster port',
+    });
+
+    new cdk.CfnOutput(this, 'DatabaseName', {
+      value: 'mcpapp',
+      description: 'Aurora PostgreSQL database name',
     });
   }
 }

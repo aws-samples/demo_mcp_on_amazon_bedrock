@@ -146,6 +146,9 @@ class StrandsAgentClientStream(StrandsAgentClient):
                 if isinstance(item, dict) and "text" in item:
                     system_prompt += item["text"]
         
+        # 添加用户id标志，用于mem0
+        user_identity = f"\nHere is the request from User with user id:{self.user_id}\n"
+        system_prompt += user_identity
         # Convert messages to Strands format
         # strands_messages = self._convert_messages_to_strands_format(messages)
         history_messages = messages[:-1]

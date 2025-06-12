@@ -57,14 +57,8 @@ def get_secret(secret_name):
         return None
 
     secret = get_secret_value_response['SecretString']
-    return secret
-
-def init_api_key():
-    if os.environ.get('API_KEY') and os.environ.get('API_KEY').startswith("arn:aws"):
-        secret = get_secret(os.environ['API_KEY'])
-        if secret:
-            os.environ['API_KEY'] = secret.get('api_key')
-    
+    secret_json = json.loads(secret)
+    return secret_json
 
 if DDB_TABLE:
     try:
@@ -155,6 +149,7 @@ async def delete_from_ddb(user_id: str) -> bool:
         )
         return True
     except Exception as e:
+        logger.warning(f"delete_from_ddb failed: {e}")
         return False
 
 async def scan_all_from_ddb() -> dict:
@@ -257,9 +252,9 @@ async def delete_user_server_config(user_id: str, server_id: str):
                 user_configs = await get_user_server_configs(user_id)
                 if server_id in user_configs:
                     del user_configs[server_id]
-                # 保存更新后的配置到DynamoDB
-                await save_to_ddb(user_id, user_configs)
-                logger.info(f"已更新用户 {user_id} 在DynamoDB中的配置")
+                    # 保存更新后的配置到DynamoDB
+                    await save_to_ddb(user_id, user_configs)
+                    logger.info(f"已更新用户 {user_id} 在DynamoDB中的配置")
             else:
                 try:
                     save_configs_to_json(user_mcp_server_configs)

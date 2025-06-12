@@ -22,5 +22,8 @@ dependencies = [
     "uvicorn>=0.34.0",
     "websockets>=15.0.1",
     "strands-agents >=0.1.6",
-    "strands-agents-tools>=0.1.4"
+    "strands-agents-tools>=0.1.4",
+    "strands-agents-tools[mem0_memory]",
+    "rich>=13.7.1",
+    "psycopg2-binary>=2.9.10"
 ]

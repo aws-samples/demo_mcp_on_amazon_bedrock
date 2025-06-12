@@ -36,7 +36,7 @@ from fastapi.exceptions import RequestValidationError
 from mcp_client_strands import StrandsMCPClient
 from strands_agent_client_stream import StrandsAgentClientStream
 from fastapi import APIRouter
-from utils import is_endpoint_sse,init_api_key,save_stream_id,get_stream_id,active_streams,delete_stream_id,delete_user_session,get_user_session,save_user_session
+from utils import is_endpoint_sse,save_stream_id,get_stream_id,active_streams,delete_stream_id,delete_user_session,get_user_session,save_user_session
 from data_types import *
 from health import router as health_router
 
@@ -50,9 +50,6 @@ logger = logging.getLogger(__name__)
 
 # 全局模型和服务器配置
 load_dotenv()  # load env vars from .env
-
-#从secrets manager中读取api key
-init_api_key()
 
 llm_model_list = {}
 shared_mcp_server_list = {}  # 共享的MCP服务器描述信息
@@ -78,8 +75,8 @@ class UserSession:
             self.chat_client = StrandsAgentClientStream(
                 user_id=user_id,
                 model_provider=os.environ.get('STRANDS_MODEL_PROVIDER', 'bedrock'),
-                api_key=os.environ.get('STRANDS_API_KEY', os.environ.get('OPENAI_API_KEY')),
-                api_base=os.environ.get('STRANDS_API_BASE')
+                api_key=os.environ.get('OPENAI_API_KEY'),
+                api_base=os.environ.get('OPENAI_BASE_URL')
             )
         else:
             raise ValueError("Please go for MCP on Bedrock Version")
@@ -340,7 +337,7 @@ async def remove_history(
             }
         )
     else:
-        session.chat_client.clear_history()
+        await session.chat_client.clear_history()
         # await session.cleanup()
         return JSONResponse(
             content={"errno": 0, "msg": "removed history"},
@@ -563,9 +560,13 @@ async def remove_mcp_server(
     # 使用会话锁确保操作是线程安全的
     # async with session.lock:
     if server_id not in session.mcp_clients:
+        logger.warning(f"User {user_id} tried to remove non-existent server {server_id}")        
+        # 从用户配置中删除
+        await delete_user_server_config(user_id, server_id)
+        logger.info(f"User {user_id} removed MCP server {server_id}")
         return JSONResponse(content=AddMCPServerResponse(
-            errno=-1,
-            msg="MCP server not found for this user!"
+            errno=0,
+            msg="Server removed successfully"
         ).model_dump())
         
     try:

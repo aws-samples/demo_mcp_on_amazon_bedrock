@@ -6,10 +6,7 @@ SPDX-License-Identifier: MIT-0
 Strands Agents SDK based chat client
 """
 import os
-import sys
-import asyncio
 import logging
-from typing import Dict, AsyncGenerator, List, Any
 import json
 import base64
 from dotenv import load_dotenv
@@ -19,9 +16,10 @@ from strands.models.openai import OpenAIModel
 from strands.models import BedrockModel
 from chat_client import ChatClient
 from mcp_client_strands import StrandsMCPClient
-from utils import maybe_filter_to_n_most_recent_images, filter_tool_use_result
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 from botocore.config import Config
+from custom_tools import mem0_memory
+
 from constant import *
 load_dotenv()  # load environment variables from .env
 
@@ -248,6 +246,10 @@ class StrandsAgentClient(ChatClient):
         # Get the model
         model = self._get_model(model_id,thinking=thinking, thinking_budget=thinking_budget,max_tokens=max_tokens, temperature=temperature)
         
+        # 如果配置了PG Database,添加memory tool
+        if os.environ.get("POSTGRESQL_HOST"):
+            tools = tools + [mem0_memory]
+            
         # Create agent
         agent = Agent(
             model=model,
