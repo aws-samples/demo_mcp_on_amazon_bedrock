@@ -21,9 +21,9 @@ ARG PIP_INDEX_URL=https://pypi.org/simple
 # Configure pip mirrors for China region if needed
 RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
         echo "Configuring pip mirrors for China region..."; \
-        pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
-        pip config set global.extra-index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
-        pip config set global.trusted-host mirrors.tuna.tsinghua.edu.cn; \
+        #pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+        #pip config set global.extra-index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple && \
+        #pip config set global.trusted-host mirrors.tuna.tsinghua.edu.cn; \
     fi
 
 ENV UV_DEFAULT_INDEX=$PIP_INDEX_URL

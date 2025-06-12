@@ -21,12 +21,13 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Security
 from utils import  (get_global_server_configs,
-                    hash_filename,
+                    delete_user_message,
                     save_global_server_config,
                     delete_user_server_config,
                     get_user_server_configs,
                     load_user_mcp_configs,
                     session_lock,
+                    DDB_TABLE,
                     save_user_server_config)
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -122,6 +123,7 @@ async def initialize_user_servers(session: UserSession):
     # 初始化服务器连接
     for server_id, config in server_configs.items():
         if server_id in session.mcp_clients:  # 跳过已存在的服务器
+            logger.info(f"skip {server_id} initialization ")
             continue
             
         try:
@@ -180,9 +182,8 @@ async def get_or_create_user_session(
     
     # 如果已经在全局中，但是不在本地，则在本地new session
     if not is_in_local and session_obj: 
-        if user_id not in user_sessions:
-            user_sessions[user_id] = UserSession(user_id)
-            logger.info(f"为用户 {user_id} 创建新会话: {user_sessions[user_id].session_id}")
+        user_sessions[user_id] = UserSession(user_id)
+        logger.info(f"为用户 {user_id} 创建新会话: {user_sessions[user_id].session_id}")
     
     # 更新最后活跃时间
     user_sessions[user_id].last_active = datetime.now()
@@ -299,6 +300,7 @@ async def list_mcp_server(
     request: Request,
     auth: HTTPAuthorizationCredentials = Security(security)
 ):
+    await get_api_key(auth)
     # 获取用户会话
     session = await get_or_create_user_session(request, auth)
     
@@ -324,30 +326,48 @@ async def remove_history(
     auth: HTTPAuthorizationCredentials = Security(security)
 ):
     # 获取用户会话
-    session = await get_or_create_user_session(request, auth,create_new=False)
-    if not session:
-        # 没有找到session立即返回响应给客户端
+    await get_api_key(auth)
+    
+    # 尝试从请求头获取用户ID，如果不存在则使用API密钥作为备用ID
+    user_id = request.headers.get("X-User-ID", auth.credentials)
+    
+    # 直接从ddb里删除记录即可
+    if DDB_TABLE:
+        await delete_user_message(user_id)
         return JSONResponse(
-            content={"errno": 0, "msg": "remove history from empty session"},
-            # 添加特殊的响应头，使浏览器不缓存此响应
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
-        )
+                content={"errno": 0, "msg": "removed history"},
+                # 添加特殊的响应头，使浏览器不缓存此响应
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
     else:
-        await session.chat_client.clear_history()
-        # await session.cleanup()
-        return JSONResponse(
-            content={"errno": 0, "msg": "removed history"},
-            # 添加特殊的响应头，使浏览器不缓存此响应
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
-        )
+        session = await get_or_create_user_session(request, auth,create_new=False)
+        if not session:
+            # 没有找到session立即返回响应给客户端
+            return JSONResponse(
+                content={"errno": 0, "msg": "remove history from empty session"},
+                # 添加特殊的响应头，使浏览器不缓存此响应
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
+        else:
+            await session.chat_client.clear_history()
+            # await session.cleanup()
+            return JSONResponse(
+                content={"errno": 0, "msg": "removed history"},
+                # 添加特殊的响应头，使浏览器不缓存此响应
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
 
 # 使用单独的路由器处理stop请求，以避免被streaming请求阻塞
 @stop_router.post("/v1/stop/stream/{stream_id}")
