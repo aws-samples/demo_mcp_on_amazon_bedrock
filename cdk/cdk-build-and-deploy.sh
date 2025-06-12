@@ -17,7 +17,7 @@ source ../.env
 set +a
 export NODE_ENV=production
 # 配置变量
-REGION="${AWS_REGION:-us-east-2}"
+REGION="${AWS_REGION:-cn-northwest-1}"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 PREFIX="strands-mcp-app"
 export CDK_DEFAULT_REGION=$REGION

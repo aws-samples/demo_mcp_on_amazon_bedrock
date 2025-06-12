@@ -82,6 +82,7 @@ AWS_REGION=us-east-1
 
 - 如果使用硅基流动等openai兼容接口模型
 ```bash
+AWS_REGION=cn-north-1
 CLIENT_TYPE=strands
 STRANDS_MODEL_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key
