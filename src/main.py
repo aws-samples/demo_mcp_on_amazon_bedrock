@@ -6,8 +6,6 @@ SPDX-License-Identifier: MIT-0
 FastAPI server for Bedrock Chat with MCP support
 """
 import os
-import sys
-import re
 import json
 import time
 import argparse

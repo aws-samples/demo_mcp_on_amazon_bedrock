@@ -92,7 +92,7 @@ echo "前端镜像推送完成: $FRONTEND_ECR:latest"
 echo "构建后端镜像 (ARM64)..."
 if [[ $IS_CHINA_REGION == true ]]; then
     echo "使用中国镜像源构建后端镜像..."
-    docker buildx build --platform linux/arm64 --build-arg USE_CHINA_MIRROR=true --build-arg PIP_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple -t ${PREFIX}-backend:latest -f Dockerfile.backend .
+    docker buildx build --platform linux/arm64 --build-arg USE_CHINA_MIRROR=true --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple -t ${PREFIX}-backend:latest -f Dockerfile.backend .
 else
     docker buildx build --platform linux/arm64 -t ${PREFIX}-backend:latest -f Dockerfile.backend .
 fi
