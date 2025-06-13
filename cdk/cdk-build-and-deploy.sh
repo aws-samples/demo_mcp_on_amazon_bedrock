@@ -20,6 +20,7 @@ export NODE_ENV=production
 REGION="${AWS_REGION:-cn-northwest-1}"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 PREFIX="strands-mcp-app"
+PLATFORM="linux/arm64"
 export CDK_DEFAULT_REGION=$REGION
 export CDK_DEFAULT_ACCOUNT=$ACCOUNT_ID
 # 检测是否为中国区域
@@ -73,14 +74,26 @@ echo "========================================="
 echo "登录到 ECR..."
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.$ECR_DOMAIN
 
+
+BUILDER_NAME="mybuilder"
+echo "检查Docker buildx builder '$BUILDER_NAME' 是否以及存在..."
+# Check if the builder exists
+if docker buildx ls | grep -q "$BUILDER_NAME"; then
+    echo "Builder '$BUILDER_NAME' exists. Skip it..."
+else
+    echo "Creating new builder '$BUILDER_NAME'..."
+    docker buildx create --name "$BUILDER_NAME" --platform "$PLATFORM" --use
+fi
+
 # 构建前端镜像
 echo "构建前端镜像 (ARM64)..."
 cd ../react_ui
+cp .env.example .env.local
 if [[ $IS_CHINA_REGION == true ]]; then
     echo "使用中国镜像源构建前端镜像..."
-    docker buildx build --platform linux/arm64 --build-arg USE_CHINA_MIRROR=true -t ${PREFIX}-frontend:latest .
+    docker buildx build --platform "$PLATFORM" --build-arg USE_CHINA_MIRROR=true --load -t ${PREFIX}-frontend:latest .
 else
-    docker buildx build --platform linux/arm64 -t ${PREFIX}-frontend:latest .
+    docker buildx build --platform "$PLATFORM" --load -t ${PREFIX}-frontend:latest .
 fi
 docker tag ${PREFIX}-frontend:latest $FRONTEND_ECR:latest
 docker push $FRONTEND_ECR:latest
@@ -92,9 +105,9 @@ echo "前端镜像推送完成: $FRONTEND_ECR:latest"
 echo "构建后端镜像 (ARM64)..."
 if [[ $IS_CHINA_REGION == true ]]; then
     echo "使用中国镜像源构建后端镜像..."
-    docker buildx build --platform linux/arm64 --build-arg USE_CHINA_MIRROR=true --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple -t ${PREFIX}-backend:latest -f Dockerfile.backend .
+    docker buildx build --platform "$PLATFORM" --build-arg USE_CHINA_MIRROR=true --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple --load -t ${PREFIX}-backend:latest -f Dockerfile.backend .
 else
-    docker buildx build --platform linux/arm64 -t ${PREFIX}-backend:latest -f Dockerfile.backend .
+    docker buildx build --platform "$PLATFORM" --load -t ${PREFIX}-backend:latest -f Dockerfile.backend .
 fi
 docker tag ${PREFIX}-backend:latest $BACKEND_ECR:latest
 docker push $BACKEND_ECR:latest
