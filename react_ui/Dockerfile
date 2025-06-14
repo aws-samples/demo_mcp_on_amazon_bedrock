@@ -1,14 +1,19 @@
-# Use Node.js 22.x as the base image - ARM64 optimized
-FROM --platform=linux/arm64 node:22-alpine
+# 首先定义变量(必须在任何 FROM 指令前定义)
+ARG USE_CHINA_MIRROR=false
+ARG PLATFROM=linux/arm64
+# 定义两个不同的基础镜像阶段
+FROM --platform=$PLATFROM node:22-alpine AS base-false
+FROM --platform=$PLATFROM mirror-docker.bosicloud.com/node:22-alpine AS base-true
+# 基于USE_CHINA_MIRROR的值选择最终使用的基础镜像
+FROM base-${USE_CHINA_MIRROR}
 
+ARG USE_CHINA_MIRROR
+RUN echo "Using China mirror: ${USE_CHINA_MIRROR}"
 # Install curl for health checks
 RUN apk add --no-cache curl
 
 # Set working directory
 WORKDIR /app
-
-# Add build argument for China region support
-ARG USE_CHINA_MIRROR=false
 
 # Configure npm mirrors for China region if needed
 RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
