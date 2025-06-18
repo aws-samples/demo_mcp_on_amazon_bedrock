@@ -32,9 +32,10 @@ class ChatClient:
             await delete_user_message(self.user_id)
     
     async def save_history(self):
-        self.messages = self.agent.messages
-        if DDB_TABLE:
-            await save_user_message(self.user_id,self.messages)
+        if self.agent:
+            self.messages = self.agent.messages
+            if DDB_TABLE:
+                await save_user_message(self.user_id,self.messages)
             
     async def load_history(self):
         if DDB_TABLE:

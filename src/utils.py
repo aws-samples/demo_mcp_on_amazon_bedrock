@@ -126,7 +126,7 @@ async def get_from_ddb(user_id: str) -> dict:
         
         if 'Item' in response:
             data = json.loads(response['Item'].get('data', '{}'))
-            logger.info(f"从DynamoDB获取用户 {user_id} 配置成功")
+            # logger.info(f"从DynamoDB获取用户 {user_id} 配置成功")
             return data
         else:
             logger.info(f"用户 {user_id} 在DynamoDB中无配置")

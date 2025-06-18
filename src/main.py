@@ -376,8 +376,24 @@ async def stop_stream(
     auth: HTTPAuthorizationCredentials = Security(security)
 ):
     """停止正在进行的模型输出流"""
-    # global active_streams
+    global active_streams
     logger.info(f"stopping request:{stream_id} in {active_streams}")
+    if not stream_id in active_streams:
+        # 如果不在当前的实例中，则直接remove ddb中的数据
+        try:
+            await delete_stream_id(stream_id=stream_id)
+            logger.info(f"Removed {stream_id} from remote record")
+        except Exception as e:
+            logger.error(f"Error removing stream from active_streams: {e}")
+        return JSONResponse(
+            content={"errno": 0, "msg": "Stream stopping initiated"},
+            # 添加特殊的响应头，使浏览器不缓存此响应
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
     
     try:
         # 获取用户会话
@@ -426,8 +442,9 @@ async def stop_stream(
             except Exception as e:
                 logger.error(f"Error in background task stopping stream {stream_id}: {e}")
         
+        await stop_stream_task(stream_id, session)
         # 添加后台任务
-        background_tasks.add_task(stop_stream_task, stream_id, session)
+        # background_tasks.add_task(stop_stream_task, stream_id, session)
         
         # 立即返回响应给客户端
         return JSONResponse(
@@ -751,9 +768,7 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
         thinking_start = False
         thinking_text_index = 0
         tooluse_start = False
-        
-        last_heartbeat = time.time()
-        heartbeat_interval = 20  # 秒
+    
         
         # 创建合并的异步生成器，同时处理响应流和心跳
         response_stream = session.chat_client.process_query_stream(
@@ -841,14 +856,11 @@ async def stream_chat_response(data: ChatCompletionRequest, session: UserSession
                 elif response["type"] == "error":
                     event_data["choices"][0]["finish_reason"] = "error"
                     event_data["choices"][0]["delta"] = {
-                        "content": f"Error: {response['data']['error']}"
+                        "content": f"Error: {response['data']}"
                     }
 
                 # 发送事件
                 yield f"data: {json.dumps(event_data)}\n\n"
-                
-                # 更新心跳时间
-                last_heartbeat = time.time()
                     
                 # 手动停止流式响应
                 if response["type"] == "stopped":
