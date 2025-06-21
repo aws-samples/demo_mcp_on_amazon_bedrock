@@ -1,6 +1,10 @@
 {
 	"models": [
 		{
+			"model_id": "deepseek-r1-250528",
+			"model_name": "DeepSeek-R1-0528"
+		},
+		{
 			"model_id": "Pro/deepseek-ai/DeepSeek-V3",
 			"model_name": "DeepSeek-V3-Pro"
 		},
@@ -21,12 +25,8 @@
 			"model_name": "DeepSeek-R1-free"
 		},
 		{
-			"model_id": "deepseek-r1-250528",
-			"model_name": "DeepSeek-R1-0528-ark"
-		},
-		{
 			"model_id": "deepseek-v3-250324",
-			"model_name": "deepseek-v3-250324-ark"
+			"model_name": "deepseek-v3-250324"
 		},
 		{
 			"model_id": "deepseek-reasoner",

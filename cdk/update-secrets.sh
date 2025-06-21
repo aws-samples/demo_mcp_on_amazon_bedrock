@@ -57,18 +57,18 @@ MISSING_VARS=()
 #     echo "✅ API_KEY: ${API_KEY:0:10}..."
 # fi
 
-if [ -z "$STRANDS_API_KEY" ]; then
-    echo "❌ STRANDS_API_KEY 未设置或为空"
-    MISSING_VARS+=("STRANDS_API_KEY")
+if [ -z "$OPENAI_API_KEY" ]; then
+    echo "❌ OPENAI_API_KEY 未设置或为空"
+    MISSING_VARS+=("OPENAI_API_KEY")
 else
-    echo "✅ STRANDS_API_KEY: ${STRANDS_API_KEY:0:10}..."
+    echo "✅ OPENAI_API_KEY: ${OPENAI_API_KEY:0:10}..."
 fi
 
-if [ -z "$STRANDS_API_BASE" ]; then
-    echo "❌ STRANDS_API_BASE 未设置或为空"
-    MISSING_VARS+=("STRANDS_API_BASE")
+if [ -z "$OPENAI_BASE_URL" ]; then
+    echo "❌ OPENAI_BASE_URL 未设置或为空"
+    MISSING_VARS+=("OPENAI_BASE_URL")
 else
-    echo "✅ STRANDS_API_BASE: $STRANDS_API_BASE"
+    echo "✅ OPENAI_BASE_URL: $OPENAI_BASE_URL"
 fi
 
 # if [ -z "$LANGFUSE_HOST" ]; then
