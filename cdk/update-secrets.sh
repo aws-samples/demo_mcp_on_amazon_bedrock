@@ -141,32 +141,32 @@ echo "========================================="
 
 
 # 更新 Strands API Key
-# echo "更新 Strands API Key..."
-# aws secretsmanager update-secret \
-#     --secret-id "${PREFIX}/strands-api-key" \
-#     --secret-string "${STRANDS_API_KEY}" \
-#     --region $REGION || {
-#     echo "创建 Strands API Key 密钥..."
-#     aws secretsmanager create-secret \
-#         --name "${PREFIX}/strands-api-key" \
-#         --description "Strands API Key" \
-#         --secret-string "${STRANDS_API_KEY}" \
-#         --region $REGION
-# }
+echo "更新 Strands API Key..."
+aws secretsmanager update-secret \
+    --secret-id "${PREFIX}/strands-api-key" \
+    --secret-string "${OPENAI_API_KEY}" \
+    --region $REGION || {
+    echo "创建 Strands API Key 密钥..."
+    aws secretsmanager create-secret \
+        --name "${PREFIX}/strands-api-key" \
+        --description "Strands API Key" \
+        --secret-string "${OPENAI_API_KEY}" \
+        --region $REGION
+}
 
 # # 更新 Strands API Base
-# echo "更新 Strands API Base..."
-# aws secretsmanager update-secret \
-#     --secret-id "${PREFIX}/strands-api-base" \
-#     --secret-string "${STRANDS_API_BASE}" \
-#     --region $REGION || {
-#     echo "创建 Strands API Base 密钥..."
-#     aws secretsmanager create-secret \
-#         --name "${PREFIX}/strands-api-base" \
-#         --description "Strands API Base URL" \
-#         --secret-string "${STRANDS_API_BASE}" \
-#         --region $REGION
-# }
+echo "更新 Strands API Base..."
+aws secretsmanager update-secret \
+    --secret-id "${PREFIX}/strands-api-base" \
+    --secret-string "${OPENAI_BASE_URL}" \
+    --region $REGION || {
+    echo "创建 Strands API Base 密钥..."
+    aws secretsmanager create-secret \
+        --name "${PREFIX}/strands-api-base" \
+        --description "Strands API Base URL" \
+        --secret-string "${OPENAI_BASE_URL}" \
+        --region $REGION
+}
 
 # 更新 Langfuse 配置
 # echo "更新 Langfuse Host..."
