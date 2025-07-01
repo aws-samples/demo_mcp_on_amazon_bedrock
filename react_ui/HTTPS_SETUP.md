@@ -20,7 +20,7 @@ NEXT_PUBLIC_API_BASE_URL=https://<ip>:7002
 
 #### Container Mode:
 ```bash
-docker-compose up mcpui-https -d
+docker-compose up mcpui-https -d --build
 ```
 
 #### Development Mode:

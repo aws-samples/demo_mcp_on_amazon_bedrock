@@ -277,6 +277,71 @@ def filter_tool_use_result(
     filtered_messages = [message for message in messages if message['content'] != []]
     return filtered_messages
     
+def maybe_redact_old_text_content(
+    messages: list, 
+    window_size: int = 10,
+    min_redaction_threshold: int = 1,
+    text_length_threshold: int = 1000,
+):
+    """
+    With the assumption that text content in tool_results becomes less valuable as
+    the conversation progresses, truncate long text content (exceeding text_length_threshold)
+    from all but the final `window_size` text contents. For texts to be truncated, keep the
+    first `text_length_threshold` characters and append "<redacted content>".
+    Redaction occurs with a chunk of min_redaction_threshold to reduce the amount we break 
+    the implicit prompt cache.
+    
+    Args:
+        messages: The list of messages to process
+        window_size: Number of most recent text contents to preserve fully
+        min_redaction_threshold: Minimum number of texts to redact at once (for cache efficiency)
+        text_length_threshold: Only redact texts longer than this threshold (in characters),
+                              and keep this many characters from the beginning
+    """
+    if not window_size:
+        return messages
+
+    # 找出所有tool_result块
+    tool_result_blocks = [
+        item['toolResult']
+        for message in messages
+        for item in (
+            message["content"] if isinstance(message["content"], list) else []
+        )
+        if isinstance(item, dict) and "toolResult" in item
+    ]
+
+    # 找出所有长文本内容（超过阈值的）
+    long_text_contents = [
+        content
+        for tool_result in tool_result_blocks
+        for content in tool_result.get("content", [])
+        if isinstance(content, dict) 
+        and "text" in content 
+        and len(content["text"]) > text_length_threshold
+    ]
+
+    # 计算需要截断的长文本数量
+    texts_to_redact = max(0, len(long_text_contents) - window_size)
+    # 为了更好的缓存行为，调整要截断的文本数量
+    texts_to_redact -= texts_to_redact % min_redaction_threshold
+    
+    # 从前向后遍历（从旧到新），截断早期的文本内容
+    for tool_result in tool_result_blocks:
+        if isinstance(tool_result.get("content"), list):
+            for content in tool_result.get("content", []):
+                if (isinstance(content, dict) 
+                    and "text" in content 
+                    and len(content["text"]) > text_length_threshold):
+                    if texts_to_redact > 0:
+                        content["text"] = content["text"][:text_length_threshold] + " <redacted content>"
+                        texts_to_redact -= 1
+
+    return messages
+
+
+
+
 def maybe_filter_to_n_most_recent_images(
     messages: list,
     images_to_keep: int,
@@ -321,6 +386,7 @@ def maybe_filter_to_n_most_recent_images(
                         continue
                 new_content.append(content)
             tool_result["content"] = new_content
+    return messages
             
 def remove_cache_checkpoint(messages: list) -> list:
     """

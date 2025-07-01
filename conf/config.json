@@ -1,6 +1,14 @@
 {
 	"models": [
 		{
+			"model_id": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+			"model_name": "Claude 4 Sonnet"
+		},
+		{
+			"model_id": "us.anthropic.claude-opus-4-20250514-v1:0",
+			"model_name": "Claude 4 Opus"
+		},
+		{
 			"model_id": "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
 			"model_name": "Claude 3.7 Sonnet"
 		},
@@ -23,42 +31,8 @@
 		{
 			"model_id": "us.amazon.nova-lite-v1:0",
 			"model_name": "Amazon Nova Lite v1"
-		},
-		{
-			"model_id": "Qwen/Qwen3-235B-A22B",
-			"model_name": "Qwen3-235B-A22B"
-		},
-		{
-			"model_id": "Qwen/Qwen3-30B-A3B",
-			"model_name": "Qwen3-30B-A3B"
-		},
-		{
-			"model_id": "Pro/deepseek-ai/DeepSeek-V3",
-			"model_name": "DeepSeek-V3-Pro"
-		},
-		{
-			"model_id": "deepseek-ai/DeepSeek-V3",
-			"model_name": "DeepSeek-V3-free"
 		}
 	],
 	"mcpServers": {
-		"cot": {
-			"command": "npx",
-			"args": [
-			  "-y",
-			  "@modelcontextprotocol/server-sequential-thinking"
-			]
-		},
-		"local_fs": {
-			"command": "npx",
-			"args": [
-				"-y",
-				"@modelcontextprotocol/server-filesystem",
-				"./docs"
-			],
-			"env": {},
-			"description": "Local File System I/O",
-			"status": 1
-		}
 	}
 }

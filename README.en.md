@@ -1,5 +1,8 @@
 # MCP on Amazon Bedrock
 ### Update Log
+
+- [20250527] Added DeepSeek-R1 support (implementing function calls using PE)
+  - For users in China using Silicon Flow API or other OpenAI-compatible APIs, DeepSeek R1 is now supported with function call capabilities implemented through PE (Prompt-Enginering) method
 - [20250516] Added streamable HTTP (simple token authentication)
   - Currently only supports basic Bearer token authentication. Configuration example: add server with JSON configuration
   ```json

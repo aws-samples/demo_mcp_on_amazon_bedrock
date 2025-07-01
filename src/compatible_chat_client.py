@@ -13,6 +13,7 @@ from openai import OpenAI
 from chat_client import ChatClient
 from mcp_client import MCPClient
 from utils import maybe_filter_to_n_most_recent_images
+from deepseek_r1_client import *
 
 load_dotenv()  # load environment variables from .env
 
@@ -73,7 +74,10 @@ class CompatibleChatClient(ChatClient):
                     if isinstance(item, dict):
                         # Handle text content
                         if "text" in item:
-                            content.append({"type": "text", "text": item["text"]})
+                            if role == "user":
+                                content = item["text"] #deepseek api only support this type
+                            else:
+                                content.append({"type": "text", "text": item["text"]})
                         
                         # Handle image content
                         elif "image" in item and "source" in item["image"]:
@@ -112,6 +116,7 @@ class CompatibleChatClient(ChatClient):
                             tool_id = tool_use.get("toolUseId", "")
                             tool_name = tool_use.get("name", "")
                             tool_input = tool_use.get("input", {})
+                            if not tool_input: tool_input = {}
                             
                             # Convert to OpenAI tool_calls format
                             tool_calls.append({
@@ -169,10 +174,15 @@ class CompatibleChatClient(ChatClient):
                     }
                 })
         
+        #logger.info(f"OpenAI format tool-set: {openai_tools}")
         return openai_tools
     
     def _convert_openai_response_to_bedrock_format(self, response, model_id):
         """Convert OpenAI response to Bedrock format"""
+
+        if "deepseek-r1" in model_id.lower():
+            return response
+
         message = response.choices[0].message
         
         # Extract content
@@ -252,7 +262,7 @@ class CompatibleChatClient(ChatClient):
                 if tool_config_response:
                     tool_config['tools'].extend(tool_config_response["tools"])
 
-        logger.info(f"tool_config: {tool_config}")
+        #logger.info(f"tool_config: {tool_config}")
         
         # Convert Bedrock format to OpenAI format
         openai_messages = self._convert_messages_to_openai_format(messages, system)
@@ -288,16 +298,22 @@ class CompatibleChatClient(ChatClient):
                 request_payload["top_p"] = extra_params["top_p"]
             if "top_k" in extra_params:
                 request_payload["top_logprobs"] = extra_params["top_k"]  # Not exact equivalent, but similar concept
-                
+
+        # turns for tool-use. If no tool-use, break. If require tool-use, continue invoking tools        
         turn_i = 1
         while turn_i <= max_turns:
             try:
+                # payload
+                #logger.info(f"Payload: {request_payload}")
+
                 # Make the API request using the OpenAI SDK
-                response = self.openai_client.chat.completions.create(**request_payload)
+                response = deepseek_r1_chat(**request_payload) if "deepseek-r1" in model_id.lower() else self.openai_client.chat.completions.create(**request_payload)
                 
                 # Convert OpenAI response to Bedrock format
                 bedrock_response = self._convert_openai_response_to_bedrock_format(response, model_id)
                 
+                logger.info(f"bedrock format response: {bedrock_response}")
+
                 # Extract message and add to history
                 output_message = bedrock_response['output']['message']
                 messages.append(output_message)
@@ -321,6 +337,8 @@ class CompatibleChatClient(ChatClient):
                             tool = tool_request['toolUse']
                             tool_calls.append(tool)
                     
+                    logger.info(f"Tool calls for use: {tool_calls}")
+
                     # Execute all tool calls in parallel
                     async def execute_tool_call(tool):
                         logger.info("Call tool: %s" % tool)

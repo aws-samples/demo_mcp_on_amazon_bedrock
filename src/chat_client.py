@@ -8,6 +8,7 @@ import asyncio
 import logging
 from typing import Dict,AsyncGenerator
 import boto3
+import base64
 from botocore.config import Config
 from dotenv import load_dotenv
 from mcp_client import MCPClient
@@ -23,6 +24,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 CLAUDE_37_SONNET_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
+CLAUDE_4_SONNET_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+CLAUDE_4_OPUS_MODEL_ID = 'us.anthropic.claude-opus-4-20250514-v1:0'
 
 class ChatClient:
     """Bedrock simple chat wrapper"""
@@ -121,7 +124,7 @@ class ChatClient:
         logger.info(f"tool_config: {tool_config}")
         bedrock_client = self._get_bedrock_client()
         
-        enable_thinking = extra_params.get('enable_thinking', False) and model_id in CLAUDE_37_SONNET_MODEL_ID
+        enable_thinking = extra_params.get('enable_thinking', False) and model_id in  [CLAUDE_37_SONNET_MODEL_ID,CLAUDE_4_SONNET_MODEL_ID,CLAUDE_4_OPUS_MODEL_ID]
         only_n_most_recent_images = extra_params.get('only_n_most_recent_images', 3)
         image_truncation_threshold = only_n_most_recent_images or 0
         
@@ -133,6 +136,12 @@ class ChatClient:
             additionalModelRequestFields = {}
             inferenceConfig={"maxTokens":max_tokens,"temperature":temperature,}
         
+        # only claude 4 supports "anthropic-beta": "interleaved-thinking-2025-05-14"
+        if model_id in [CLAUDE_4_SONNET_MODEL_ID,CLAUDE_4_OPUS_MODEL_ID]:
+            additionalModelRequestFields['anthropic_beta'] = ["interleaved-thinking-2025-05-14"]
+            
+        logger.info(f"inferenceConfig:{inferenceConfig}")
+
         # 如新一轮对话里没有启用mcp server，则需要清除之前的tool use content，否则会报错
         if len(messages) > 0 and not tool_config['tools']:
             messages = filter_tool_use_result(messages)

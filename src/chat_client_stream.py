@@ -9,12 +9,12 @@ import logging
 from typing import Dict, AsyncGenerator, Optional, List, AsyncIterator
 import json
 import boto3
-from botocore.config import Config
+from botocore.config import Config 
 from dotenv import load_dotenv
 from chat_client import ChatClient
 import base64
 from mcp_client import MCPClient
-from utils import maybe_filter_to_n_most_recent_images,remove_cache_checkpoint,filter_tool_use_result
+from utils import maybe_filter_to_n_most_recent_images,remove_cache_checkpoint,filter_tool_use_result,maybe_redact_old_text_content
 from botocore.exceptions import ClientError
 import random
 import time
@@ -27,6 +27,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 CLAUDE_37_SONNET_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
+CLAUDE_4_SONNET_MODEL_ID = 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+CLAUDE_4_OPUS_MODEL_ID = 'us.anthropic.claude-opus-4-20250514-v1:0'
 CLAUDE_35_HAIKU_MODEL_ID = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
 NOVA_RPO_MODEL_ID = 'us.amazon.nova-pro-v1:0'
 NOVA_LITE_MODEL_ID = 'us.amazon.nova-lite-v1:0'
@@ -145,8 +147,8 @@ class ChatClientStream(ChatClient):
         
         logger.info(f'llm input message list length:{len(messages)}')
             
-        prompt_cache = True if model_id in [CLAUDE_37_SONNET_MODEL_ID,CLAUDE_35_HAIKU_MODEL_ID] else False
-        prompt_cache_for_tool = True if model_id in [CLAUDE_37_SONNET_MODEL_ID,CLAUDE_35_HAIKU_MODEL_ID] else False
+        prompt_cache = True if model_id in [CLAUDE_37_SONNET_MODEL_ID,CLAUDE_35_HAIKU_MODEL_ID,CLAUDE_4_SONNET_MODEL_ID,CLAUDE_4_OPUS_MODEL_ID] else False
+        prompt_cache_for_tool = True if model_id in [CLAUDE_37_SONNET_MODEL_ID,CLAUDE_35_HAIKU_MODEL_ID,CLAUDE_4_SONNET_MODEL_ID,CLAUDE_4_OPUS_MODEL_ID] else False
         cache_window = 2048 if model_id == CLAUDE_35_HAIKU_MODEL_ID else 1024
 
         # get tools from mcp server
@@ -171,7 +173,7 @@ class ChatClientStream(ChatClient):
         stop_reason = ''
         turn_i = 1
 
-        enable_thinking = extra_params.get('enable_thinking', False) and model_id in CLAUDE_37_SONNET_MODEL_ID
+        enable_thinking = extra_params.get('enable_thinking', False) and model_id in [CLAUDE_37_SONNET_MODEL_ID,CLAUDE_4_SONNET_MODEL_ID,CLAUDE_4_OPUS_MODEL_ID]
         only_n_most_recent_images = extra_params.get('only_n_most_recent_images', 3)
         image_truncation_threshold = only_n_most_recent_images or 0
 
@@ -182,7 +184,12 @@ class ChatClientStream(ChatClient):
         else:
             additionalModelRequestFields = {}
             inferenceConfig={"maxTokens":max_tokens,"temperature":temperature,}
-
+            
+        # only claude 4 supports "anthropic-beta": "interleaved-thinking-2025-05-14"
+        if model_id in [CLAUDE_4_SONNET_MODEL_ID,CLAUDE_4_OPUS_MODEL_ID]:
+            additionalModelRequestFields['anthropic_beta'] = ["interleaved-thinking-2025-05-14"]
+            
+        logger.info(f"inferenceConfig:{inferenceConfig}")
         # 如新一轮对话里没有启用mcp server，则需要清除之前的tool use content，否则会报错
         if len(messages) > 0 and not tool_config['tools']:
             messages = filter_tool_use_result(messages)
@@ -372,7 +379,7 @@ class ChatClientStream(ChatClient):
                                 tool_results.append(result[0])
                                 tool_text_results.append(result[1])
                                 tool_results_serializable.append(result[2])
-                            logger.info(f'tool_text_results {tool_text_results[:100]}...')
+                            logger.info(f'tool_text_results {json.dumps(tool_text_results,ensure_ascii=False,indent=4)[:200]}...')
                             # 处理所有工具调用的结果
                             tool_results_content = []
                             for tool_result in tool_results:
@@ -424,7 +431,7 @@ class ChatClientStream(ChatClient):
                             text_block = [{"text": text}] if text.strip() else []
                             assistant_message = {
                                 "role": "assistant",
-                                "content":   thinking_block+ tool_use_block + text_block if thinking_signature else text_block + tool_use_block
+                                "content":   thinking_block+  text_block + tool_use_block if thinking_signature else text_block + tool_use_block
                             }     
                             # thinking_signature = ''
                             # thinking_text = ''
@@ -436,14 +443,17 @@ class ChatClientStream(ChatClient):
                             messages.append(tool_result_message)
                             
                             if only_n_most_recent_images:
-                                maybe_filter_to_n_most_recent_images(
+                                messages = maybe_filter_to_n_most_recent_images(
                                     messages,
                                     only_n_most_recent_images,
                                     min_removal_threshold=image_truncation_threshold,
                             )
+                            messages = maybe_redact_old_text_content(
+                                messages,
+                            )
 
                             logger.info(f"Call new turn : message length:{len(messages)}")
-                            
+                            # logger.info(f"Call new turn : message:{messages}")
                             # Reset tool state
                             current_tool_use = None
                             

@@ -1,5 +1,8 @@
 # MCP on Amazon Bedrock[[English Readme](./README.en.md)]
 ### 更新日志
+- [20250527] 增加DeepSeek-R1支持（使用PE实现function call）
+  - 针对中国区使用硅基流动api，或者其他openai兼容api，可以支持deepseek r1，通过PE方式实现了function call
+
 - [20250516] 增加streamable http（简单token方式鉴权）
   - 目前只支持简单的Beaer token方式验证，配置示例：add server添加json配置 
   ```json

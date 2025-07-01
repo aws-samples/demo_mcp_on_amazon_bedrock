@@ -717,7 +717,8 @@ async def add_mcp_server(
             "command": server_cmd,
             "args": server_script_args,
             "env": server_script_envs,
-            "description": server_desc
+            "description": server_desc,
+            "token":token,
         }
         await save_user_server_config(user_id, server_id, server_config)
         
@@ -1246,7 +1247,15 @@ async def chat_completions(
 
             if is_tool_use or is_tool_result:
                 continue
-
+            
+            thinking_content = ""
+            text_content = ""
+            for content_block in response['content']:
+                if 'reasoningContent' in content_block:
+                    thinking_content = f"<thinking>{content_block['reasoningContent']['reasoningText']['text']}</thinking>"
+                if "text" in content_block:
+                    text_content = content_block['text']
+            
             chat_response = ChatResponse(
                 id=f"chat{time.time_ns()}",
                 created=int(time.time()),
@@ -1256,7 +1265,7 @@ async def chat_completions(
                         "index": 0,
                         "message": {
                             "role": "assistant",
-                            "content": response['content'][0]['text'],
+                            "content": thinking_content+text_content,
                         },
                         "message_extras": {
                             "tool_use": [info for too_id, info in tool_use_info.items()],

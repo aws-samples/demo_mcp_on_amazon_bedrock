@@ -19,6 +19,8 @@ import requests
 from openai import OpenAI
 from chat_client_stream import ChatClientStream
 from compatible_chat_client import CompatibleChatClient
+from deepseek_r1_client import *
+import re
 
 from mcp_client import MCPClient
 from utils import maybe_filter_to_n_most_recent_images, remove_cache_checkpoint
@@ -30,6 +32,9 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
 )
 logger = logging.getLogger(__name__)
+
+#Now deepseek-r1-0528 has supported tool use, skip the PE function call
+TOOL_USE_SUPPORT = False
 
 class CompatibleChatClientStream(CompatibleChatClient):
     """Extended ChatClient with OpenAI v1/chat/completions API compatibility for streaming"""
@@ -60,68 +65,195 @@ class CompatibleChatClientStream(CompatibleChatClient):
             del self.stop_flags[stream_id]
             logger.info(f"Unregistered stream: {stream_id}")
             
-    async def _process_openai_stream_response(self, stream_id:str, stream_response) -> AsyncIterator[Dict]:
+    async def _process_openai_stream_response(self, stream_id:str, stream_response, model_id) -> AsyncIterator[Dict]:
         """Process streaming response from OpenAI SDK format"""
-        try:
-            # For SDK streamed responses, we iterate through the chunks
-            tool_index=0
-            last_yield_time = time.time()
-            for chunk in stream_response:
-                current_time = time.time()
-                if current_time - last_yield_time > 0.1:  # 每100ms让出一次控制权，避免阻塞
-                    await asyncio.sleep(0.001)
-                    last_yield_time = current_time
+        # transform chunk data and extract infomation from it
+        r1_status = "running"
+        r1_text_response = ""
+        r1_content = ""
+        txt_tmp = ""
+        outputing_text = True
+        
+        while True:
+            try:
+                # For SDK streamed responses, we iterate through the chunks
+                tool_index=0
+                last_yield_time = time.time()
+                for chunk in stream_response:
+                    current_time = time.time()
+                    if current_time - last_yield_time > 0.1:  # 每100ms让出一次控制权，避免阻塞
+                        await asyncio.sleep(0.001)
+                        last_yield_time = current_time
                 
-                if stream_id and stream_id in self.stop_flags and self.stop_flags[stream_id]:
-                    logger.info(f"Stream {stream_id} was requested to stop")
-                    yield {"type": "stopped", "data": {"message": "Stream stopped by user request"}}
-                    break
-                    
-                # Process each chunk from the stream
-                if hasattr(chunk, 'choices') and chunk.choices:
-                    choice = chunk.choices[0]
-                    # logger.info(choice)
-                    
-                    # Initial role message
-                    if hasattr(choice, 'delta') and hasattr(choice.delta, 'role'):
-                        yield {"type": "message_start", "data": {"role": choice.delta.role}}
-                    
-                    # Content delta
-                    if hasattr(choice, 'delta') and hasattr(choice.delta, 'content') and choice.delta.content is not None:
-                        content = choice.delta.content
-                        if content:
+                    # Process stream termination
+                    if stream_id and stream_id in self.stop_flags and self.stop_flags[stream_id]:
+                        logger.info(f"Stream {stream_id} was requested to stop")
+                        yield {"type": "stopped", "data": {"message": "Stream stopped by user request"}}
+                        break
+                
+                    # Process deepseek-r1 chunk
+                    if "deepseek-r1" in model_id.lower() and not TOOL_USE_SUPPORT:
+                        if hasattr(chunk, 'choices') and chunk.choices:
+                            choice = chunk.choices[0]
+
+                            # Initial role message
+                            # Generate this msg for every chunk
+                            if hasattr(choice, 'delta') and hasattr(choice.delta, 'role'):
+                                yield {"type": "message_start", "data": {"role": choice.delta.role}}
+                        
+                            # Thinking delta
+                            if hasattr(choice, 'delta') and hasattr(choice.delta, 'reasoning_content') and choice.delta.reasoning_content is not None:
+                                think_content = choice.delta.reasoning_content
+                                if think_content:
+                                    yield {
+                                    "type": "block_delta",
+                                    "data": {"delta": {"reasoningContent": {"text": think_content}}}
+                                }
+                        
+                            # Content delta
+                            if hasattr(choice, 'delta') and hasattr(choice.delta, 'content') and choice.delta.content is not None:
+                                answer = choice.delta.content
+                                # logger.info(f"Chunk content: {answer}")
+        
+                                # Collect all "content" values for extracting tool-use command
+                                # pay attention to the sequence of code execution, it counts
+                                if choice.delta.content:
+                                    r1_content += answer
+
+                                # Check if text response ends
+                                if answer and "<" in answer and outputing_text and not txt_tmp:
+                                    # Handle senario that <t> is outputed separately in two chunks: first <, then t>
+                                    # 1. Handle senario like </html> as the final output
+                                    # 2. txt_tmp is empty, but < output appears as part of <t> or <tr>
+                                    # 3. txt_tmp is not empty which means < in it. Concat two chunks and check whether <t> is in
+                                    if txt_tmp == "" and choice.finish_reason == "stop":
+                                        # logger.info(f"Answer text: {answer}")
+                                        outputing_text = False
+                                        yield {"type": "block_delta", "data": {"delta": {"text": answer}}}
+                                    elif txt_tmp == "":
+                                        txt_tmp += answer
+                                elif txt_tmp and outputing_text:
+                                    txt_tmp += answer
+                                    if "<t>" in txt_tmp:
+                                        match = re.search(r"(.*)<t>", txt_tmp, re.DOTALL)
+                                        match_chunk_text = match.group(1)
+                                        r1_text_response += match_chunk_text
+                                        outputing_text = False
+                                        logger.info(f"Last answer before tool: {match_chunk_text}")
+                                        if match_chunk_text: yield {"type": "block_delta", "data": {"delta": {"text": match_chunk_text}}}
+                                    elif "<t>" not in txt_tmp:
+                                        # logger.info(f"Answer text: {txt_tmp}")
+                                        yield {"type": "block_delta", "data": {"delta": {"text": txt_tmp}}}
+                                    txt_tmp = ""
+                                elif answer and outputing_text:
+                                    # logger.info(f"Answer text: {answer}")
+                                    yield {"type": "block_delta", "data": {"delta": {"text": answer}}}
+                                
+                                # check whether there is a tool_call
+                                # if tool call exists, extract and return
+                                if choice.finish_reason == "stop":
+                                    if "<t>" in r1_content:
+                                        extracted_toolcall = re.search("<t>(.*?)</t>", r1_content.strip(), re.DOTALL).group(1)
+                                        dict_r1_content = json.loads(extracted_toolcall)
+                                        if dict_r1_content["tool_calls"]: 
+                                            r1_status = "tool_calls"
+                                        else:
+                                            r1_status = "regular_stop"
+                                    else:
+                                        r1_status = "regular_stop"
+                                
+                                    if r1_status == "tool_calls":
+                                        func_name = dict_r1_content["tool_calls"][0]["tool_name"]
+                                        func_id = uuid.uuid4().hex
+                                        func_input = dict_r1_content["tool_calls"][0]["parameters"]  # dict
+                                        # Return tool name
+                                        yield {
+                                    "type": "block_start",
+                                        "data": {
+                                            "start": {
+                                                "toolUse": {
+                                                    "name": func_name,
+                                                    "toolUseId": func_id,
+                                                    "input": ""
+                                                }
+                                            }
+                                        }
+                                    }
+                                        # Return tool input
+                                        yield {
+                                    "type": "block_delta",
+                                        "data": {
+                                            "delta": {
+                                                "toolUse": {
+                                                    "input": json.dumps(func_input)   # convert dict to json string for subsequent processing
+                                                }
+                                            }
+                                        }
+                                    }
+                                        # Block stop
+                                        yield {"type": "block_stop", "data":{}}
+                                        yield {"type": "message_stop", "data": {"stopReason": "tool_use"}}
+                                    elif r1_status == "regular_stop":
+                                        # Block stop
+                                        yield {"type": "block_stop", "data":{}}
+                                        yield {"type": "message_stop", "data": {"stopReason": "stop"}}
+
+                        if hasattr(chunk, 'usage'):
                             yield {
+                        "type": "metadata",
+                        "data": {
+                            "usage": {
+                                "inputTokens": chunk.usage.prompt_tokens if hasattr(chunk.usage, 'prompt_tokens') else 0,
+                                "outputTokens": chunk.usage.completion_tokens if hasattr(chunk.usage, 'completion_tokens') else 0
+                            }
+                        }
+                        }       
+                    else:
+                        # Process each chunk from the stream (for tool-use supporting models)
+                        if hasattr(chunk, 'choices') and chunk.choices:
+                            choice = chunk.choices[0]
+                            # logger.info(choice)
+                    
+                            # Initial role message
+                            if hasattr(choice, 'delta') and hasattr(choice.delta, 'role'):
+                                yield {"type": "message_start", "data": {"role": choice.delta.role}}
+                    
+                            # Content delta
+                            if hasattr(choice, 'delta') and hasattr(choice.delta, 'content') and choice.delta.content is not None:
+                                content = choice.delta.content
+                                if content:
+                                    yield {
                                 "type": "block_delta",
                                 "data": {"delta": {"text": content}}
                             }
                             
-                    # Thinking delta
-                    if hasattr(choice, 'delta') and hasattr(choice.delta, 'reasoning_content') and choice.delta.reasoning_content is not None:
-                        content = choice.delta.reasoning_content
-                        if content:
-                            yield {
+                            # Thinking delta
+                            if hasattr(choice, 'delta') and hasattr(choice.delta, 'reasoning_content') and choice.delta.reasoning_content is not None:
+                                content = choice.delta.reasoning_content
+                                if content:
+                                    yield {
                                 "type": "block_delta",
                                 "data": {"delta": {"reasoningContent": {"text": content}}}
                             }
                             
-                    # Tool calls
-                    if hasattr(choice, 'delta') and hasattr(choice.delta, 'tool_calls') and choice.delta.tool_calls:
-                        for tool_call in choice.delta.tool_calls:
-                            if hasattr(tool_call,'index'):
-                                # 如果index变化，说明是新的tool call，需要发送一个block stop标志
-                                if not tool_index == tool_call.index:
-                                    tool_index = tool_call.index
-                                    yield {
+                            # Tool calls
+                            if hasattr(choice, 'delta') and hasattr(choice.delta, 'tool_calls') and choice.delta.tool_calls:
+                                for tool_call in choice.delta.tool_calls:
+                                    if hasattr(tool_call,'index'):
+                                        # 如果index变化，说明是新的tool call，需要发送一个block stop标志
+                                        if not tool_index == tool_call.index:
+                                            tool_index = tool_call.index
+                                            yield {
                                         "type": "block_stop",
                                         "data":{}
                                     }
                                     
-                            if hasattr(tool_call, 'function'):
-                                function = tool_call.function
+                                    if hasattr(tool_call, 'function'):
+                                        function = tool_call.function
                                 
-                                if hasattr(function, 'name') and function.name:
-                                    # Tool use start
-                                    yield {
+                                        if hasattr(function, 'name') and function.name:
+                                            # Tool use start
+                                            yield {
                                         "type": "block_start",
                                         "data": {
                                             "start": {
@@ -134,9 +266,9 @@ class CompatibleChatClientStream(CompatibleChatClient):
                                         }
                                     }
                                 
-                                if hasattr(function, 'arguments') and function.arguments:
-                                    # Tool input delta
-                                    yield {
+                                        if hasattr(function, 'arguments') and function.arguments:
+                                            # Tool input delta
+                                            yield {
                                         "type": "block_delta",
                                         "data": {
                                             "delta": {
@@ -147,20 +279,20 @@ class CompatibleChatClientStream(CompatibleChatClient):
                                         }
                                     }
                     
-                    # Finish reason
-                    if hasattr(choice, 'finish_reason') and choice.finish_reason:
-                        yield {
+                            # Finish reason
+                            if hasattr(choice, 'finish_reason') and choice.finish_reason:
+                                yield {
                                 "type": "block_stop",
                                 "data":{}
                             }
-                        if choice.finish_reason == 'tool_calls':
-                            yield {"type": "message_stop", "data": {"stopReason": "tool_use"}}
-                        else:
-                            yield {"type": "message_stop", "data": {"stopReason": choice.finish_reason}}
+                                if choice.finish_reason == 'tool_calls':
+                                    yield {"type": "message_stop", "data": {"stopReason": "tool_use"}}
+                                else:
+                                    yield {"type": "message_stop", "data": {"stopReason": choice.finish_reason}}
                 
-                # Usage and metadata - this might come in the final chunk
-                if hasattr(chunk, 'usage'):
-                    yield {
+                        # Usage and metadata - this might come in the final chunk
+                        if hasattr(chunk, 'usage'):
+                            yield {
                         "type": "metadata",
                         "data": {
                             "usage": {
@@ -170,12 +302,14 @@ class CompatibleChatClientStream(CompatibleChatClient):
                         }
                     }
             
-            # End of stream
-            yield {"type": "message_stop", "data": {"stopReason": "end_turn"}}
+                # End of stream
+                yield {"type": "message_stop", "data": {"stopReason": "end_turn"}}
+                logger.info("LLM Response finished")
+                break
             
-        except Exception as e:
-            logger.error(f"Error processing OpenAI stream response: {e}")
-            yield {"type": "error", "data": {"error": str(e)}}
+            except Exception as e:
+                logger.error(f"Error processing OpenAI stream response: {e}")
+                yield {"type": "error", "data": {"error": str(e)}}
     
     async def process_query_stream(self, 
             model_id="", max_tokens=1024, max_turns=30, temperature=0.1,
@@ -196,12 +330,12 @@ class CompatibleChatClientStream(CompatibleChatClient):
         logger.info(f'llm input message list length:{len(messages)}')
 
         # get tools from mcp server
-        tool_config = {"tools": []}
+        tool_config = {'tools': []}
         if mcp_clients is not None:
             for mcp_server_id in mcp_server_ids:
                 tool_config_response = await mcp_clients[mcp_server_id].get_tool_config(server_id=mcp_server_id)
                 tool_config['tools'].extend(tool_config_response["tools"])
-        logger.info(f"Tool config: {tool_config}")
+        #logger.info(f"Tool config: {tool_config}")
         
         # Register this stream if an ID is provided
         if stream_id:
@@ -254,10 +388,11 @@ class CompatibleChatClientStream(CompatibleChatClient):
                 
             try:
                 # Make the API request using the OpenAI SDK directly
-                response = self.openai_client.chat.completions.create(**request_payload)
+                response = deepseek_r1_chat_stream(**request_payload) if "deepseek-r1" in model_id.lower() and not TOOL_USE_SUPPORT else self.openai_client.chat.completions.create(**request_payload)
                 
                 # Process the streaming response
-                async for event in self._process_openai_stream_response(stream_id, response):
+                # yield twice (event+tool_result)
+                async for event in self._process_openai_stream_response(stream_id, response, model_id):
                     # Forward the event to the caller
                     yield event
                     
@@ -398,6 +533,7 @@ class CompatibleChatClientStream(CompatibleChatClient):
                             
                             # Update OpenAI messages format for the next request
                             openai_messages = self._convert_messages_to_openai_format(messages, system)
+                            # logger.info(openai_messages)
                             request_payload["messages"] = openai_messages
                             
                             # Reset state
