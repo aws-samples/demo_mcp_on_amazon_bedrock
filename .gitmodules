@@ -1,3 +1,6 @@
 [submodule "amazon-bedrock-agent-samples"]
 	path = amazon-bedrock-agent-samples
 	url = https://github.com/awslabs/amazon-bedrock-agent-samples.git
+[submodule "demo_mcp_on_amazon_bedrock"]
+	path = demo_mcp_on_amazon_bedrock
+	url = https://github.com/xiehust/demo_mcp_on_amazon_bedrock.git
